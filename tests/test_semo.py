@@ -5,9 +5,11 @@
 sections, and the first company order.
 """
 
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from isem_data import eirgrid, semo
 
@@ -80,3 +82,78 @@ def test_a_day_with_more_half_hours_is_read_in_full():
         ]
     )
     assert len(semo.parse_market_result(text)) == 50
+
+
+class FakeResponse:
+    """Stands in for a `requests` response that returns the given JSON."""
+
+    def __init__(self, answer):
+        self.answer = answer
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self.answer
+
+
+def listing_page(items, total_pages):
+    """One page of SEMO's file list, shaped like the real API's answer."""
+    return {
+        "items": [{"ResourceName": name, "Date": f"{day}T11:00:00"} for day, name in items],
+        "pagination": {"totalPages": total_pages},
+    }
+
+
+def test_list_files_reads_every_page(monkeypatch):
+    pages = {
+        1: listing_page([("2026-11-01", "file_a.csv"), ("2026-11-02", "file_b.csv")], 2),
+        2: listing_page([("2026-11-03", "file_c.csv")], 2),
+    }
+    monkeypatch.setattr(
+        semo.requests, "get", lambda url, params, timeout: FakeResponse(pages[params["page"]])
+    )
+
+    assert semo.list_files() == {
+        date(2026, 11, 1): "file_a.csv",
+        date(2026, 11, 2): "file_b.csv",
+        date(2026, 11, 3): "file_c.csv",
+    }
+
+
+def test_list_files_keeps_the_newer_file_when_a_day_has_two(monkeypatch):
+    # The list is requested oldest first, so a re-run for the same day comes later.
+    page = listing_page([("2026-11-02", "first_run.csv"), ("2026-11-02", "re_run.csv")], 1)
+    monkeypatch.setattr(semo.requests, "get", lambda url, params, timeout: FakeResponse(page))
+
+    assert semo.list_files() == {date(2026, 11, 2): "re_run.csv"}
+
+
+def test_fetch_downloads_each_day_and_warns_about_missing_ones(monkeypatch, capsys):
+    downloaded = []
+
+    def fake_download(name):
+        downloaded.append(name)
+        return FIXTURE.read_text()
+
+    monkeypatch.setattr(semo, "list_files", lambda: {date(2026, 11, 2): "nov2.csv"})
+    monkeypatch.setattr(semo, "download", fake_download)
+    monkeypatch.setattr(semo.time, "sleep", lambda seconds: None)
+
+    df = semo.fetch(date(2026, 11, 2), date(2026, 11, 3))
+
+    assert downloaded == ["nov2.csv"]
+    assert len(df) == 4 * 48
+    assert "no day-ahead results file for 2026-11-03" in capsys.readouterr().out
+
+
+def test_fetch_with_no_files_gives_an_empty_table(monkeypatch):
+    monkeypatch.setattr(semo, "list_files", lambda: {})
+    df = semo.fetch(date(2026, 11, 2), date(2026, 11, 2))
+    assert df.empty
+    assert list(df.columns) == semo.COLUMNS
+
+
+def test_fetch_rejects_a_reversed_date_range():
+    with pytest.raises(ValueError, match="start must be on or before end"):
+        semo.fetch(date(2026, 11, 3), date(2026, 11, 1))
