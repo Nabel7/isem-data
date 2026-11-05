@@ -64,6 +64,25 @@ wind = storage.load("wind")
 2 2026-10-19 23:30:00+00:00    ALL  wind_actual_mw  1779.0
 ```
 
+## Daily updates (macOS)
+
+`scripts/daily_update.sh` downloads the last 7 days of every dataset. Going back a week means days the Mac was off are filled in on the next run, and re-downloading days that are already saved changes nothing.
+
+To run it every day at 14:00 with macOS's built-in scheduler (launchd):
+
+```bash
+scripts/install_daily_update.sh
+```
+
+| To | Run |
+|---|---|
+| run it now | `launchctl kickstart gui/$(id -u)/com.isem-data.daily-update` |
+| read the log | `tail -n 20 logs/daily_update.log` |
+| check it is loaded | `launchctl print gui/$(id -u)/com.isem-data.daily-update \| head` |
+| remove it | `launchctl bootout gui/$(id -u)/com.isem-data.daily-update` and delete `~/Library/LaunchAgents/com.isem-data.daily-update.plist` |
+
+If the Mac is asleep at 14:00 the job runs when it wakes. If it is off for more than a week, catch up by hand with `python -m isem_data --start <first missed day>`.
+
 ## How it works
 
 ```
@@ -97,7 +116,8 @@ pytest -q            # tests use made-up data and never touch the internet
 
 - [x] Day-ahead market prices from SEMO
 - [x] Company order results from the same SEMO files
-- [ ] A scheduled GitHub Action that refreshes the data daily
+- [x] Daily updates on a Mac (launchd)
+- [ ] Daily updates in the cloud: a scheduled GitHub Action writing to object storage
 - [ ] Query the data with DuckDB
 - [ ] Wind and price forecasting on top of the data, in a separate repo
 

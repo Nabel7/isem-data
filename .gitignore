@@ -9,3 +9,4 @@ __pycache__/
 
 # Downloaded data stays on your machine
 data/
+logs/
