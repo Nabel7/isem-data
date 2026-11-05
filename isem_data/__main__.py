@@ -4,6 +4,7 @@ python -m isem_data                                   # the last 7 days
 python -m isem_data --start 2026-10-01 --end 2026-10-31
 python -m isem_data --datasets wind
 python -m isem_data --datasets prices --start 2025-11-07   # back-fill SEMO's year of prices
+python -m isem_data --datasets orders --start 2025-11-07   # ...and of company orders
 python -m isem_data --data-dir ~/grid-data            # save somewhere else
 """
 
@@ -13,8 +14,9 @@ from pathlib import Path
 
 from . import eirgrid, semo, storage
 
-# Every dataset the command can download: EirGrid's, plus day-ahead prices from SEMO.
-DATASETS = [*eirgrid.DATASETS, "prices"]
+# Every dataset the command can download: EirGrid's, plus SEMO's day-ahead prices
+# and company orders (both read from the same SEMO files).
+DATASETS = [*eirgrid.DATASETS, "prices", "orders"]
 
 
 def main() -> None:
@@ -36,11 +38,15 @@ def main() -> None:
         parser.error(f"start must be on or before end (got start={start}, end={end})")
 
     for dataset in args.datasets:
+        key = storage.KEY
         if dataset == "prices":
             df = semo.fetch(start, end)
+        elif dataset == "orders":
+            df = semo.fetch(start, end, parse=semo.parse_orders)
+            key = semo.ORDER_KEY  # orders are identified differently from the tidy datasets
         else:
             df = eirgrid.fetch(dataset, start, end)
-        path = storage.save(df, dataset, data_dir=args.data_dir.expanduser())
+        path = storage.save(df, dataset, data_dir=args.data_dir.expanduser(), key=key)
         print(f"{dataset}: {len(df)} rows for {start} to {end} -> {path}")
 
 

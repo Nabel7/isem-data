@@ -1,4 +1,4 @@
-"""Read SEMO day-ahead market results into the tidy table.
+"""Read SEMO day-ahead market results: prices, volumes and each company's orders.
 
 SEMO (the Single Electricity Market Operator) publishes one results file per
 day-ahead auction, named like
@@ -15,7 +15,18 @@ The file is a semicolon-separated list of sections. The part we read looks like:
     4068,9;4011,8;...
 
 After the NI and ROI market sections come about 2,400 lines of each company's
-order results. Those are a separate dataset for later; this module skips them.
+order results, one block per order:
+
+    Bidding level;ROI-EIRGRID-DA           <- which bidding zone the orders below are in
+    Portfolio;SSE;GU_400770;30;EUR;N       <- company, unit, 30-minute periods, currency
+    Linear order;SSE-U2                    <- order type and order name
+    2026-11-01T23:00:00Z;...               <- timestamps
+    -75,0;-75,0;...                        <- MW cleared: + bought, - sold
+    400000495306290;...                    <- two rows of SEMO's internal order IDs
+    400000495306290;...
+
+These are the cleared results, not the bids: how much each order bought or sold
+at the clearing price, not the prices it offered.
 
 SEMO keeps about one year of these files online, one per delivery day. Older
 days drop off the list, so download them before they go.
@@ -84,6 +95,68 @@ def parse_market_result(text: str) -> pd.DataFrame:
     return df.dropna().reset_index(drop=True)
 
 
+# The company order results, one row per order and half-hour.
+ORDER_COLUMNS = [
+    "timestamp_utc",
+    "region",
+    "participant",
+    "unit",
+    "order_type",
+    "order_name",
+    "quantity_mw",
+]
+
+# One unit can have two orders with the same name (one linear, one scalable complex),
+# so the order type is part of what identifies a row.
+ORDER_KEY = ["timestamp_utc", "region", "unit", "order_name", "order_type"]
+
+# The SEMO zone names used in the order section -> the region names we use.
+ORDER_REGIONS = {"ROI-EIRGRID-DA": "ROI", "NI-SONI-DA": "NI"}
+
+ORDER_TYPES = {"Linear order": "linear", "Scalable complex order": "scalable_complex"}
+
+
+def parse_orders(text: str) -> pd.DataFrame:
+    """Turn the text of one results file into a table of each company's cleared orders."""
+    lines = text.splitlines()
+    records = []
+    region = participant = unit = None
+
+    for i, line in enumerate(lines):
+        cells = line.split(";")
+        if cells[0] == "Bidding level":
+            region = ORDER_REGIONS.get(cells[1])
+        elif cells[0] == "Portfolio":
+            participant, unit = cells[1], cells[2]
+        elif cells[0] in ORDER_TYPES and region is not None:
+            timestamps = lines[i + 1].split(";")
+            quantities = lines[i + 2].split(";")
+            for timestamp, quantity in zip(timestamps, quantities, strict=True):
+                records.append(
+                    {
+                        "timestamp_utc": timestamp,
+                        "region": region,
+                        "participant": participant,
+                        "unit": unit,
+                        "order_type": ORDER_TYPES[cells[0]],
+                        "order_name": cells[1],
+                        "quantity_mw": to_number(quantity),
+                    }
+                )
+
+    df = pd.DataFrame(records, columns=ORDER_COLUMNS)
+    df["timestamp_utc"] = pd.to_datetime(df["timestamp_utc"], utc=True)
+    df["quantity_mw"] = df["quantity_mw"].astype(float)
+
+    # If SEMO ever lists the same order twice, saving would keep only one copy.
+    # Say so rather than lose data quietly.
+    repeated = df.duplicated(subset=ORDER_KEY, keep=False)
+    if repeated.any():
+        print(f"warning: {repeated.sum()} order rows share a key; only one of each will be kept")
+
+    return df.dropna().reset_index(drop=True)
+
+
 def list_files() -> dict[date, str]:
     """Ask SEMO which day-ahead results files exist: {delivery day: file name}.
 
@@ -120,8 +193,12 @@ def download(name: str) -> str:
     return response.text
 
 
-def fetch(start: date, end: date) -> pd.DataFrame:
-    """Download and read the day-ahead results for every delivery day from start to end."""
+def fetch(start: date, end: date, parse=parse_market_result) -> pd.DataFrame:
+    """Download every delivery day's results file from start to end and read it.
+
+    `parse` decides what to read from each file: parse_market_result for prices
+    and volumes (the default), or parse_orders for the company orders.
+    """
     if start > end:
         raise ValueError(f"start must be on or before end (got start={start}, end={end})")
 
@@ -130,12 +207,12 @@ def fetch(start: date, end: date) -> pd.DataFrame:
     day = start
     while day <= end:
         if day in files:
-            frames.append(parse_market_result(download(files[day])))
+            frames.append(parse(download(files[day])))
             time.sleep(1)  # be polite: each file is about 1 MB
         else:
             print(f"warning: SEMO has no day-ahead results file for {day}")
         day += timedelta(days=1)
 
     if not frames:
-        return pd.DataFrame(columns=COLUMNS)
+        return parse("")  # an empty table with the right columns
     return pd.concat(frames, ignore_index=True)

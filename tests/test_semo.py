@@ -3,6 +3,11 @@
 `fixtures/semo_da_2026-11-02.csv` is the first 54 lines of a real results file
 (the auction held on 1 Nov 2026 for delivery on 2 Nov): the header, both market
 sections, and the first company order.
+
+`fixtures/semo_da_orders_2026-11-02.csv` is three excerpts from the company order
+part of the same file: the start of the NI orders (three orders), the start of the
+ROI orders, and an SSE unit with two orders sharing one name (linear and scalable
+complex).
 """
 
 from datetime import date
@@ -11,9 +16,10 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from isem_data import eirgrid, semo
+from isem_data import eirgrid, semo, storage
 
 FIXTURE = Path(__file__).parent / "fixtures" / "semo_da_2026-11-02.csv"
+ORDERS_FIXTURE = Path(__file__).parent / "fixtures" / "semo_da_orders_2026-11-02.csv"
 
 
 def parse_fixture():
@@ -157,3 +163,57 @@ def test_fetch_with_no_files_gives_an_empty_table(monkeypatch):
 def test_fetch_rejects_a_reversed_date_range():
     with pytest.raises(ValueError, match="start must be on or before end"):
         semo.fetch(date(2026, 11, 3), date(2026, 11, 1))
+
+
+def parse_orders_fixture():
+    return semo.parse_orders(ORDERS_FIXTURE.read_text())
+
+
+def test_orders_give_one_row_per_order_and_half_hour():
+    df = parse_orders_fixture()
+    assert list(df.columns) == semo.ORDER_COLUMNS
+    assert len(df) == 5 * 48  # five orders in the excerpt
+
+
+def test_orders_take_company_unit_and_region_from_the_lines_above():
+    df = parse_orders_fixture()
+    first = df.iloc[0]
+    assert first["region"] == "NI"
+    assert first["participant"] == "AARHUS"
+    assert first["unit"] == "AU_500145"
+    assert first["order_type"] == "linear"
+    assert first["order_name"] == "AARHUSR01API"
+    assert first["timestamp_utc"] == pd.Timestamp("2026-11-01 23:00", tz="UTC")
+    assert first["quantity_mw"] == -18.8  # written "-18,8": a sale
+    assert set(df["region"]) == {"NI", "ROI"}
+
+
+def test_a_unit_with_two_orders_of_the_same_name_keeps_both():
+    df = parse_orders_fixture()
+    sse = df[df["unit"] == "GU_400770"]
+    assert sorted(sse["order_type"].unique()) == ["linear", "scalable_complex"]
+    assert not df.duplicated(subset=semo.ORDER_KEY).any()
+
+
+def test_both_orders_survive_saving_and_saving_twice_changes_nothing(tmp_path):
+    df = parse_orders_fixture()
+    storage.save(df, "orders", data_dir=tmp_path, key=semo.ORDER_KEY)
+    storage.save(df, "orders", data_dir=tmp_path, key=semo.ORDER_KEY)
+    assert len(storage.load("orders", data_dir=tmp_path)) == 5 * 48
+
+
+def test_each_parser_reads_only_its_own_part_of_the_file():
+    # The prices fixture ends with the first NI order; the orders fixture has no prices.
+    assert len(semo.parse_orders(FIXTURE.read_text())) == 48
+    assert semo.parse_market_result(ORDERS_FIXTURE.read_text()).empty
+
+
+def test_fetch_can_read_orders_instead_of_prices(monkeypatch):
+    monkeypatch.setattr(semo, "list_files", lambda: {date(2026, 11, 2): "nov2.csv"})
+    monkeypatch.setattr(semo, "download", lambda name: ORDERS_FIXTURE.read_text())
+    monkeypatch.setattr(semo.time, "sleep", lambda seconds: None)
+
+    df = semo.fetch(date(2026, 11, 2), date(2026, 11, 2), parse=semo.parse_orders)
+
+    assert list(df.columns) == semo.ORDER_COLUMNS
+    assert len(df) == 5 * 48
