@@ -11,6 +11,7 @@
 - Data is saved to the project's `data/` folder wherever the command is run from. Use `--data-dir` to choose another folder.
 
 ### Added
+- Daily updates on macOS: `scripts/daily_update.sh` downloads the last 7 days of every dataset, and `scripts/install_daily_update.sh` schedules it with launchd for 14:00 every day, logging to `logs/daily_update.log`.
 - `python -m isem_data --datasets orders` saves each company's cleared day-ahead orders to `data/orders.parquet`, read from the same SEMO files as prices by the new `semo.parse_orders()`. One row per order and half-hour; `quantity_mw` is + bought, − sold.
 - `python -m isem_data --datasets prices` downloads SEMO day-ahead prices and volumes into `data/prices.parquet`. It lists SEMO's files, downloads one per delivery day (warning about missing days) and reads them with the new parser. Prices are now part of the default download.
 - `semo.parse_market_result()` reads a SEMO day-ahead results file into the tidy table: half-hourly prices (`dam_price_eur_mwh`) and volumes (`dam_volume_mw`) for ROI and NI. Company order results in the same file are skipped for now.
