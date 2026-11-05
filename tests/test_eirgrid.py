@@ -17,7 +17,7 @@ def test_to_dataframe_has_tidy_columns():
     df = eirgrid.to_dataframe([row("01-Nov-2026 00:00:00"), row("01-Nov-2026 00:15:00")])
     assert list(df.columns) == eirgrid.COLUMNS
     assert len(df) == 2
-    assert df["series"].tolist() == ["wind_actual", "wind_actual"]
+    assert df["series"].tolist() == ["wind_actual_mw", "wind_actual_mw"]
 
 
 def test_local_time_is_converted_to_utc():
@@ -137,7 +137,7 @@ def test_find_gaps_reports_a_missing_hour():
 
     assert len(gaps) == 1
     gap = gaps.iloc[0]
-    assert gap["series"] == "wind_actual"
+    assert gap["series"] == "wind_actual_mw"
     assert gap["first_missing"] == pd.Timestamp("2026-11-01 14:00", tz="UTC")
     assert gap["last_missing"] == pd.Timestamp("2026-11-01 14:45", tz="UTC")
     assert gap["readings"] == 4
@@ -151,8 +151,8 @@ def test_find_gaps_counts_empty_values_and_missing_series():
     gaps = eirgrid.find_gaps(df, "wind", date(2026, 11, 1), date(2026, 11, 1))
 
     assert gaps[["series", "readings"]].values.tolist() == [
-        ["wind_actual", 1],
-        ["wind_forecast", 96],
+        ["wind_actual_mw", 1],
+        ["wind_forecast_mw", 96],
     ]
 
 

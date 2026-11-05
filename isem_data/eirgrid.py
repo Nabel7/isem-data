@@ -16,18 +16,18 @@ API_URL = "https://www.smartgriddashboard.com/api/chart/"
 # The datasets we download:
 # our name -> (the API's chart type, the API's area names, the series we expect back).
 DATASETS = {
-    "wind": ("wind", "windactual,windforecast", ["wind_actual", "wind_forecast"]),
-    "demand": ("demand", "demandactual", ["demand_actual"]),
+    "wind": ("wind", "windactual,windforecast", ["wind_actual_mw", "wind_forecast_mw"]),
+    "demand": ("demand", "demandactual", ["demand_actual_mw"]),
 }
 
 # The API's field names -> the series names we use in our tables.
 SERIES_NAMES = {
-    "WIND_ACTUAL": "wind_actual",
-    "WIND_FCAST": "wind_forecast",
-    "SYSTEM_DEMAND": "demand_actual",
+    "WIND_ACTUAL": "wind_actual_mw",
+    "WIND_FCAST": "wind_forecast_mw",
+    "SYSTEM_DEMAND": "demand_actual_mw",
 }
 
-COLUMNS = ["timestamp_utc", "region", "series", "value_mw"]
+COLUMNS = ["timestamp_utc", "region", "series", "value"]
 
 # EirGrid publishes one reading every 15 minutes.
 INTERVAL = pd.Timedelta(minutes=15)
@@ -81,7 +81,7 @@ def to_dataframe(rows: list[dict]) -> pd.DataFrame:
             "timestamp_utc": local_time.dt.tz_convert("UTC"),
             "region": raw["Region"],
             "series": raw["FieldName"].map(SERIES_NAMES),  # unknown fields become NaN
-            "value_mw": pd.to_numeric(raw["Value"], errors="coerce").astype(float),
+            "value": pd.to_numeric(raw["Value"], errors="coerce").astype(float),
         }
     )
     return tidy.dropna().reset_index(drop=True)

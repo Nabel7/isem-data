@@ -25,7 +25,15 @@ def save(df: pd.DataFrame, dataset: str, data_dir: Path = DATA_DIR) -> Path:
     """
     path = data_dir / f"{dataset}.parquet"
     if path.exists():
-        df = pd.concat([pd.read_parquet(path), df], ignore_index=True)
+        existing = pd.read_parquet(path)
+        # Stacking tables with different columns would quietly fill the gaps with NaN,
+        # e.g. after a column is renamed. Stop and say what to do instead.
+        if list(existing.columns) != list(df.columns):
+            raise ValueError(
+                f"{path} has columns {list(existing.columns)} but the new data has "
+                f"{list(df.columns)}. Delete {path} and download again."
+            )
+        df = pd.concat([existing, df], ignore_index=True)
 
     df = (
         df.drop_duplicates(subset=KEY, keep="last")

@@ -1,11 +1,12 @@
 """Tests for saving and loading. `tmp_path` is a fresh empty folder pytest gives each test."""
 
 import pandas as pd
+import pytest
 
 from isem_data import storage
 
 
-def table(values, series="wind_actual"):
+def table(values, series="wind_actual_mw"):
     """A small tidy table with one row per value, 15 minutes apart."""
     return pd.DataFrame(
         {
@@ -14,7 +15,7 @@ def table(values, series="wind_actual"):
             ),
             "region": "ALL",
             "series": series,
-            "value_mw": values,
+            "value": values,
         }
     )
 
@@ -34,15 +35,23 @@ def test_saving_twice_does_not_duplicate_rows(tmp_path):
 def test_newer_values_replace_older_ones(tmp_path):
     storage.save(table([1.0, 2.0]), "wind", data_dir=tmp_path)
     storage.save(table([9.0]), "wind", data_dir=tmp_path)  # a revised first value
-    assert storage.load("wind", data_dir=tmp_path)["value_mw"].tolist() == [9.0, 2.0]
+    assert storage.load("wind", data_dir=tmp_path)["value"].tolist() == [9.0, 2.0]
 
 
 def test_different_series_are_kept_apart(tmp_path):
     storage.save(table([1.0]), "wind", data_dir=tmp_path)
-    storage.save(table([5.0], series="wind_forecast"), "wind", data_dir=tmp_path)
+    storage.save(table([5.0], series="wind_forecast_mw"), "wind", data_dir=tmp_path)
     assert len(storage.load("wind", data_dir=tmp_path)) == 2
 
 
 def test_default_data_dir_does_not_depend_on_the_current_folder():
     assert storage.DATA_DIR.is_absolute()
     assert (storage.DATA_DIR.parent / "pyproject.toml").exists()
+
+
+def test_saving_different_columns_into_an_old_file_stops_with_a_clear_error(tmp_path):
+    old = table([1.0]).rename(columns={"value": "value_mw"})  # the old column name
+    storage.save(old, "wind", data_dir=tmp_path)
+
+    with pytest.raises(ValueError, match="Delete .* and download again"):
+        storage.save(table([2.0]), "wind", data_dir=tmp_path)
