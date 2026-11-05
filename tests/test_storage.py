@@ -41,3 +41,8 @@ def test_different_series_are_kept_apart(tmp_path):
     storage.save(table([1.0]), "wind", data_dir=tmp_path)
     storage.save(table([5.0], series="wind_forecast"), "wind", data_dir=tmp_path)
     assert len(storage.load("wind", data_dir=tmp_path)) == 2
+
+
+def test_default_data_dir_does_not_depend_on_the_current_folder():
+    assert storage.DATA_DIR.is_absolute()
+    assert (storage.DATA_DIR.parent / "pyproject.toml").exists()

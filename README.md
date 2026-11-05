@@ -25,7 +25,7 @@ python -m isem_data                                     # the last 7 days
 python -m isem_data --start 2026-10-01 --end 2026-10-31 # a date range
 ```
 
-Data is saved to `data/wind.parquet` and `data/demand.parquet`:
+Data is saved to `data/wind.parquet` and `data/demand.parquet` at the top of the project, whichever folder you run the command from. Use `--data-dir` to save somewhere else:
 
 ```python
 from isem_data import storage
@@ -51,6 +51,7 @@ isem_data/
 
 - **One tidy format.** Every dataset has the same four columns: `timestamp_utc`, `region`, `series`, `value_mw`. New sources only need to produce this shape.
 - **UTC everywhere.** EirGrid reports Irish local time. On the night the clocks go back, 01:00–01:59 happens twice and the two hours can't be told apart, so those rows are dropped rather than guessed.
+- **Gaps are reported, not hidden.** Readings that are missing or empty are left out of the table, and the download prints a warning for each stretch of missing readings, e.g. `warning: wind_actual is missing 4 reading(s) from 2026-11-01 14:00:00+00:00 to 2026-11-01 14:45:00+00:00`. The repeated hour on the night the clocks go back always shows up here.
 - **Safe to re-run.** Saving replaces rows with the same timestamp, region and series, so downloading the same days twice changes nothing. Newer downloads win, which matters because forecasts get revised.
 - **Polite.** Requests go a week at a time, with a pause between them.
 

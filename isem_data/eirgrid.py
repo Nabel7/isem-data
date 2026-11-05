@@ -13,10 +13,11 @@ import requests
 
 API_URL = "https://www.smartgriddashboard.com/api/chart/"
 
-# The datasets we download: our name -> (the API's chart type, the API's area names).
+# The datasets we download:
+# our name -> (the API's chart type, the API's area names, the series we expect back).
 DATASETS = {
-    "wind": ("wind", "windactual,windforecast"),
-    "demand": ("demand", "demandactual"),
+    "wind": ("wind", "windactual,windforecast", ["wind_actual", "wind_forecast"]),
+    "demand": ("demand", "demandactual", ["demand_actual"]),
 }
 
 # The API's field names -> the series names we use in our tables.
@@ -27,6 +28,9 @@ SERIES_NAMES = {
 }
 
 COLUMNS = ["timestamp_utc", "region", "series", "value_mw"]
+
+# EirGrid publishes one reading every 15 minutes.
+INTERVAL = pd.Timedelta(minutes=15)
 
 
 def fetch_rows(
@@ -41,7 +45,7 @@ def fetch_rows(
     The API sometimes answers with no rows for a request that works a second
     later, so an empty answer is retried a few times before giving up.
     """
-    chart_type, areas = DATASETS[dataset]
+    chart_type, areas, _ = DATASETS[dataset]
     params = {
         "region": region,  # "ALL" (whole island), "ROI" or "NI"
         "chartType": chart_type,
@@ -86,7 +90,14 @@ def to_dataframe(rows: list[dict]) -> pd.DataFrame:
 def fetch(
     dataset: str, start: date, end: date, region: str = "ALL", chunk_days: int = 7
 ) -> pd.DataFrame:
-    """Fetch a date range a week at a time and return one tidy table."""
+    """Fetch a date range a week at a time and return one tidy table.
+
+    Prints a warning for any stretch of missing readings, so gaps in EirGrid's
+    data don't pass unnoticed.
+    """
+    if start > end:
+        raise ValueError(f"start must be on or before end (got start={start}, end={end})")
+
     frames = []
     chunk_start = start
     while chunk_start <= end:
@@ -97,4 +108,45 @@ def fetch(
         frames.append(to_dataframe(rows))
         chunk_start = chunk_end + timedelta(days=1)
         time.sleep(1)  # be polite: this is a free public service
-    return pd.concat(frames, ignore_index=True)
+    df = pd.concat(frames, ignore_index=True)
+
+    for gap in find_gaps(df, dataset, start, end).itertuples():
+        print(
+            f"warning: {gap.series} is missing {gap.readings} reading(s) "
+            f"from {gap.first_missing} to {gap.last_missing}"
+        )
+    return df
+
+
+def find_gaps(df: pd.DataFrame, dataset: str, start: date, end: date) -> pd.DataFrame:
+    """List the readings missing from `df`, one row per unbroken run of missing readings.
+
+    Every series should have a reading every 15 minutes from midnight Irish time on
+    `start` to 23:45 on `end`. Readings can be missing because EirGrid didn't send
+    them, sent them empty, or (once a year) because they fell in the repeated hour
+    when the clocks go back.
+
+    Columns: series, first_missing, last_missing (both UTC), readings (how many).
+    """
+    # Midnight is never affected by clock changes in Ireland, so these are unambiguous.
+    first = pd.Timestamp(start).tz_localize("Europe/Dublin")
+    after_last = pd.Timestamp(end + timedelta(days=1)).tz_localize("Europe/Dublin")
+    expected = pd.date_range(first, after_last, freq=INTERVAL, inclusive="left")
+    expected = expected.tz_convert("UTC")
+
+    gaps = []
+    for series in DATASETS[dataset][2]:
+        present = df.loc[df["series"] == series, "timestamp_utc"]
+        missing = expected[~expected.isin(present)].to_series()
+        # A new run starts wherever the step from the previous missing reading isn't 15 min.
+        run_number = (missing.diff() != INTERVAL).cumsum()
+        for _, run in missing.groupby(run_number):
+            gaps.append(
+                {
+                    "series": series,
+                    "first_missing": run.iloc[0],
+                    "last_missing": run.iloc[-1],
+                    "readings": len(run),
+                }
+            )
+    return pd.DataFrame(gaps, columns=["series", "first_missing", "last_missing", "readings"])
