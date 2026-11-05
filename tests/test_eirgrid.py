@@ -3,6 +3,7 @@
 from datetime import date
 
 import pandas as pd
+import pytest
 
 from isem_data import eirgrid
 
@@ -108,3 +109,58 @@ def test_gives_up_after_three_empty_answers(monkeypatch):
 
     assert eirgrid.fetch_rows("wind", date(2026, 11, 1), date(2026, 11, 1)) == []
     assert len(calls) == 3
+
+
+def test_fetch_rejects_a_reversed_date_range():
+    with pytest.raises(ValueError, match="start must be on or before end"):
+        eirgrid.fetch("wind", date(2026, 10, 20), date(2026, 10, 1))
+
+
+def full_day(field, day="01-Nov-2026", skip=()):
+    """Rows for every 15 minutes of one day, leaving out the times in `skip`."""
+    times = [f"{h:02d}:{m:02d}:00" for h in range(24) for m in (0, 15, 30, 45)]
+    return [row(f"{day} {t}", field=field) for t in times if t not in skip]
+
+
+def test_find_gaps_is_empty_when_nothing_is_missing():
+    rows = full_day("WIND_ACTUAL") + full_day("WIND_FCAST")
+    df = eirgrid.to_dataframe(rows)
+    assert eirgrid.find_gaps(df, "wind", date(2026, 11, 1), date(2026, 11, 1)).empty
+
+
+def test_find_gaps_reports_a_missing_hour():
+    missing_hour = ("14:00:00", "14:15:00", "14:30:00", "14:45:00")
+    rows = full_day("WIND_ACTUAL", skip=missing_hour) + full_day("WIND_FCAST")
+    df = eirgrid.to_dataframe(rows)
+
+    gaps = eirgrid.find_gaps(df, "wind", date(2026, 11, 1), date(2026, 11, 1))
+
+    assert len(gaps) == 1
+    gap = gaps.iloc[0]
+    assert gap["series"] == "wind_actual"
+    assert gap["first_missing"] == pd.Timestamp("2026-11-01 14:00", tz="UTC")
+    assert gap["last_missing"] == pd.Timestamp("2026-11-01 14:45", tz="UTC")
+    assert gap["readings"] == 4
+
+
+def test_find_gaps_counts_empty_values_and_missing_series():
+    rows = full_day("WIND_ACTUAL")
+    rows[0]["Value"] = None  # EirGrid sent the reading, but with no value
+    df = eirgrid.to_dataframe(rows)  # and no WIND_FCAST rows at all
+
+    gaps = eirgrid.find_gaps(df, "wind", date(2026, 11, 1), date(2026, 11, 1))
+
+    assert gaps[["series", "readings"]].values.tolist() == [
+        ["wind_actual", 1],
+        ["wind_forecast", 96],
+    ]
+
+
+def test_find_gaps_handles_clock_change_days():
+    # 25 Oct 2026 lasts 25 hours, so it has 100 readings, 8 of them in the repeated hour.
+    rows = full_day("SYSTEM_DEMAND", day="25-Oct-2026")
+    df = eirgrid.to_dataframe(rows)
+
+    gaps = eirgrid.find_gaps(df, "demand", date(2026, 10, 25), date(2026, 10, 25))
+
+    assert gaps["readings"].sum() == 8

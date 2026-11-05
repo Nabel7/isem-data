@@ -1,4 +1,4 @@
-"""Save and load datasets as Parquet files in a local data folder.
+"""Save and load datasets as Parquet files in the project's data folder.
 
 Parquet is a compressed column format: much smaller and faster than CSV, and it
 keeps the column types (like timezone-aware timestamps) when you read it back.
@@ -8,7 +8,10 @@ from pathlib import Path
 
 import pandas as pd
 
-DATA_DIR = Path("data")
+# The data/ folder at the top of the project, wherever the command is run from.
+# (A plain Path("data") would mean "data/ inside the current folder", so running the
+# command from somewhere else would quietly start a second, separate data folder.)
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
 # A row is identified by these columns. Two rows with the same key are the same data point.
 KEY = ["timestamp_utc", "region", "series"]
