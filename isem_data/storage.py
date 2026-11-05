@@ -13,11 +13,13 @@ import pandas as pd
 # command from somewhere else would quietly start a second, separate data folder.)
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
-# A row is identified by these columns. Two rows with the same key are the same data point.
+# A row is identified by its key columns: two rows with the same key are the same data
+# point. This is the key for the tidy datasets (wind, demand, prices); other datasets,
+# like the company orders, pass their own.
 KEY = ["timestamp_utc", "region", "series"]
 
 
-def save(df: pd.DataFrame, dataset: str, data_dir: Path = DATA_DIR) -> Path:
+def save(df: pd.DataFrame, dataset: str, data_dir: Path = DATA_DIR, key: list[str] = KEY) -> Path:
     """Add rows to the dataset's file. Re-downloaded rows replace the old copies.
 
     Running the same download twice leaves the file unchanged, so it is always
@@ -35,11 +37,7 @@ def save(df: pd.DataFrame, dataset: str, data_dir: Path = DATA_DIR) -> Path:
             )
         df = pd.concat([existing, df], ignore_index=True)
 
-    df = (
-        df.drop_duplicates(subset=KEY, keep="last")
-        .sort_values(["series", "timestamp_utc"])
-        .reset_index(drop=True)
-    )
+    df = df.drop_duplicates(subset=key, keep="last").sort_values(key).reset_index(drop=True)
     data_dir.mkdir(parents=True, exist_ok=True)
     df.to_parquet(path, index=False)
     return path

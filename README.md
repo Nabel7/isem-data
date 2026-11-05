@@ -11,14 +11,31 @@ Download and store data from the Irish electricity market (I-SEM) in one tidy fo
 | `wind` | `wind_actual_mw`, `wind_forecast_mw` | EirGrid Smart Grid Dashboard | 15 min |
 | `demand` | `demand_actual_mw` | EirGrid Smart Grid Dashboard | 15 min |
 | `prices` | `dam_price_eur_mwh`, `dam_volume_mw` | SEMO day-ahead market results | 30 min |
+| `orders` | each company's cleared orders (see below) | SEMO day-ahead market results | 30 min |
 
 EirGrid values are for the whole island (Ireland and Northern Ireland). Day-ahead prices and volumes are per bidding zone, `ROI` and `NI`.
 
-SEMO only keeps about a year of day-ahead files online, so back-fill prices early:
+SEMO only keeps about a year of day-ahead files online, so back-fill early:
 
 ```bash
-python -m isem_data --datasets prices --start 2025-11-07   # about 15 minutes for a year
+python -m isem_data --datasets prices orders --start 2025-11-07   # about 8 minutes each for a year
 ```
+
+### Company orders
+
+`orders` has one row per company order and half-hour: how much each order bought or sold at the day-ahead clearing price. These are the **cleared results, not the bids**: the prices companies offered aren't published here.
+
+| Column | Example | Meaning |
+|---|---|---|
+| `timestamp_utc` | 2026-11-01 23:00 UTC | start of the half-hour |
+| `region` | `ROI`, `NI` | bidding zone |
+| `participant` | `SSE` | the company's short code in SEMO |
+| `unit` | `GU_400770` | the unit; the prefix is its type: `GU` generator, `SU` supplier, `AU` trader (assetless), `DSU` demand side unit |
+| `order_type` | `linear`, `scalable_complex` | the kind of order |
+| `order_name` | `SSE-U2` | the order's name; one unit can have a linear and a scalable complex order with the same name |
+| `quantity_mw` | `-50.5` | **+ bought, − sold** |
+
+In every half-hour the buys add up exactly to the sells, which is a handy check on the data. A week is about 140,000 rows (0.27 MB as Parquet), so a year is about 7 million rows and roughly 14 MB.
 
 ## Quickstart
 
@@ -53,7 +70,7 @@ wind = storage.load("wind")
 isem_data/
 ├── eirgrid.py    # download from EirGrid and turn the JSON into a tidy table
 ├── semo.py       # list, download and read SEMO day-ahead results files
-├── storage.py    # save to / load from Parquet, without duplicate rows
+├── storage.py    # save to / load from Parquet, without duplicate rows (each dataset has a key)
 └── __main__.py   # the command line: python -m isem_data
 ```
 
@@ -79,7 +96,7 @@ pytest -q            # tests use made-up data and never touch the internet
 ## Roadmap
 
 - [x] Day-ahead market prices from SEMO
-- [ ] Company order results from the same SEMO files
+- [x] Company order results from the same SEMO files
 - [ ] A scheduled GitHub Action that refreshes the data daily
 - [ ] Query the data with DuckDB
 - [ ] Wind and price forecasting on top of the data, in a separate repo
