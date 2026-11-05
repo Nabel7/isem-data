@@ -8,8 +8,8 @@ Download and store data from the Irish electricity market (I-SEM) in one tidy fo
 
 | Dataset | Series | Source | Resolution |
 |---|---|---|---|
-| `wind` | `wind_actual`, `wind_forecast` | EirGrid Smart Grid Dashboard | 15 min |
-| `demand` | `demand_actual` | EirGrid Smart Grid Dashboard | 15 min |
+| `wind` | `wind_actual_mw`, `wind_forecast_mw` | EirGrid Smart Grid Dashboard | 15 min |
+| `demand` | `demand_actual_mw` | EirGrid Smart Grid Dashboard | 15 min |
 
 All values are in MW for the whole island (Ireland and Northern Ireland). Day-ahead prices from SEMO are next.
 
@@ -34,10 +34,10 @@ wind = storage.load("wind")
 ```
 
 ```
-              timestamp_utc region       series  value_mw
-0 2026-10-19 23:00:00+00:00    ALL  wind_actual    1843.0
-1 2026-10-19 23:15:00+00:00    ALL  wind_actual    1785.0
-2 2026-10-19 23:30:00+00:00    ALL  wind_actual    1779.0
+              timestamp_utc region          series   value
+0 2026-10-19 23:00:00+00:00    ALL  wind_actual_mw  1843.0
+1 2026-10-19 23:15:00+00:00    ALL  wind_actual_mw  1785.0
+2 2026-10-19 23:30:00+00:00    ALL  wind_actual_mw  1779.0
 ```
 
 ## How it works
@@ -49,9 +49,9 @@ isem_data/
 └── __main__.py   # the command line: python -m isem_data
 ```
 
-- **One tidy format.** Every dataset has the same four columns: `timestamp_utc`, `region`, `series`, `value_mw`. New sources only need to produce this shape.
+- **One tidy format.** Every dataset has the same four columns: `timestamp_utc`, `region`, `series`, `value`. The unit is part of the series name (`wind_actual_mw`), so MW, prices and volumes all fit the same shape. New sources only need to produce it.
 - **UTC everywhere.** EirGrid reports Irish local time. On the night the clocks go back, 01:00–01:59 happens twice and the two hours can't be told apart, so those rows are dropped rather than guessed.
-- **Gaps are reported, not hidden.** Readings that are missing or empty are left out of the table, and the download prints a warning for each stretch of missing readings, e.g. `warning: wind_actual is missing 4 reading(s) from 2026-11-01 14:00:00+00:00 to 2026-11-01 14:45:00+00:00`. The repeated hour on the night the clocks go back always shows up here.
+- **Gaps are reported, not hidden.** Readings that are missing or empty are left out of the table, and the download prints a warning for each stretch of missing readings, e.g. `warning: wind_actual_mw is missing 4 reading(s) from 2026-11-01 14:00:00+00:00 to 2026-11-01 14:45:00+00:00`. The repeated hour on the night the clocks go back always shows up here.
 - **Safe to re-run.** Saving replaces rows with the same timestamp, region and series, so downloading the same days twice changes nothing. Newer downloads win, which matters because forecasts get revised.
 - **Polite.** Requests go a week at a time, with a pause between them.
 
