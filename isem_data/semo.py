@@ -16,9 +16,22 @@ The file is a semicolon-separated list of sections. The part we read looks like:
 
 After the NI and ROI market sections come about 2,400 lines of each company's
 order results. Those are a separate dataset for later; this module skips them.
+
+SEMO keeps about one year of these files online, one per delivery day. Older
+days drop off the list, so download them before they go.
 """
 
+import time
+from datetime import date, timedelta
+
 import pandas as pd
+import requests
+
+LIST_URL = "https://reports.sem-o.com/api/v1/documents/static-reports"
+FILE_URL = "https://reports.sem-o.com/documents/"
+
+# Day-ahead results files all start with this name.
+DAY_AHEAD_FILES = "MarketResult_SEM-DA"
 
 # Same tidy shape as the EirGrid data.
 COLUMNS = ["timestamp_utc", "region", "series", "value"]
@@ -69,3 +82,60 @@ def parse_market_result(text: str) -> pd.DataFrame:
     df["timestamp_utc"] = pd.to_datetime(df["timestamp_utc"], utc=True)
     df["value"] = df["value"].astype(float)
     return df.dropna().reset_index(drop=True)
+
+
+def list_files() -> dict[date, str]:
+    """Ask SEMO which day-ahead results files exist: {delivery day: file name}.
+
+    The list comes back a page at a time (about 4 pages for a year of files).
+    Each item looks like:
+    {"ResourceName": "MarketResult_SEM-DA_PWR-MRC-D+1_20261101110000_...csv",
+     "Date": "2026-11-02T11:00:00", ...}   <- Date is the delivery day
+    """
+    files = {}
+    page = 1
+    while True:
+        params = {
+            "ResourceName": DAY_AHEAD_FILES,
+            "sort_by": "PublishTime",  # oldest first, so if a day ever has two files
+            "order_by": "ASC",  # (a re-run), the newer one overwrites the older below
+            "page_size": 100,
+            "page": page,
+        }
+        response = requests.get(LIST_URL, params=params, timeout=60)
+        response.raise_for_status()
+        answer = response.json()
+        for item in answer["items"]:
+            delivery_day = date.fromisoformat(item["Date"][:10])
+            files[delivery_day] = item["ResourceName"]
+        if page >= answer["pagination"]["totalPages"]:
+            return files
+        page += 1
+
+
+def download(name: str) -> str:
+    """Download one results file and return its text."""
+    response = requests.get(FILE_URL + name, timeout=120)
+    response.raise_for_status()
+    return response.text
+
+
+def fetch(start: date, end: date) -> pd.DataFrame:
+    """Download and read the day-ahead results for every delivery day from start to end."""
+    if start > end:
+        raise ValueError(f"start must be on or before end (got start={start}, end={end})")
+
+    files = list_files()
+    frames = []
+    day = start
+    while day <= end:
+        if day in files:
+            frames.append(parse_market_result(download(files[day])))
+            time.sleep(1)  # be polite: each file is about 1 MB
+        else:
+            print(f"warning: SEMO has no day-ahead results file for {day}")
+        day += timedelta(days=1)
+
+    if not frames:
+        return pd.DataFrame(columns=COLUMNS)
+    return pd.concat(frames, ignore_index=True)

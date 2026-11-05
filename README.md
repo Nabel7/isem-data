@@ -10,10 +10,15 @@ Download and store data from the Irish electricity market (I-SEM) in one tidy fo
 |---|---|---|---|
 | `wind` | `wind_actual_mw`, `wind_forecast_mw` | EirGrid Smart Grid Dashboard | 15 min |
 | `demand` | `demand_actual_mw` | EirGrid Smart Grid Dashboard | 15 min |
+| `prices` | `dam_price_eur_mwh`, `dam_volume_mw` | SEMO day-ahead market results | 30 min |
 
-All values are in MW for the whole island (Ireland and Northern Ireland).
+EirGrid values are for the whole island (Ireland and Northern Ireland). Day-ahead prices and volumes are per bidding zone, `ROI` and `NI`.
 
-Day-ahead prices and volumes from SEMO (`dam_price_eur_mwh`, `dam_volume_mw`, half-hourly, for ROI and NI) can already be read from a results file with `semo.parse_market_result()`; downloading them is next.
+SEMO only keeps about a year of day-ahead files online, so back-fill prices early:
+
+```bash
+python -m isem_data --datasets prices --start 2025-11-07   # about 15 minutes for a year
+```
 
 ## Quickstart
 
@@ -47,7 +52,7 @@ wind = storage.load("wind")
 ```
 isem_data/
 ├── eirgrid.py    # download from EirGrid and turn the JSON into a tidy table
-├── semo.py       # read SEMO day-ahead results files into a tidy table
+├── semo.py       # list, download and read SEMO day-ahead results files
 ├── storage.py    # save to / load from Parquet, without duplicate rows
 └── __main__.py   # the command line: python -m isem_data
 ```
@@ -61,7 +66,7 @@ isem_data/
 ## Data sources and caveats
 
 - **EirGrid Smart Grid Dashboard** ([smartgriddashboard.com](https://www.smartgriddashboard.com)): the JSON API behind its charts is public but not officially documented, so it may change without notice. Everything that depends on it is in `eirgrid.py`.
-- **SEMO** ([sem-o.com](https://www.sem-o.com)): day-ahead results files, one per auction. Timestamps are already UTC, and prices use a comma as the decimal point. `tests/fixtures/` holds the first lines of one real file for testing.
+- **SEMO** ([sem-o.com](https://www.sem-o.com)): day-ahead results files, one per delivery day, listed through SEMO's public reports API for about a year before they drop off. A file appears in the list a day or two after its auction. Timestamps are already UTC, and prices use a comma as the decimal point. `tests/fixtures/` holds the first lines of one real file for testing.
 - Check each provider's terms before redistributing the data. This repo stores code, not data.
 
 ## Development
@@ -73,7 +78,8 @@ pytest -q            # tests use made-up data and never touch the internet
 
 ## Roadmap
 
-- [ ] Day-ahead market prices from SEMO
+- [x] Day-ahead market prices from SEMO
+- [ ] Company order results from the same SEMO files
 - [ ] A scheduled GitHub Action that refreshes the data daily
 - [ ] Query the data with DuckDB
 - [ ] Wind and price forecasting on top of the data, in a separate repo
