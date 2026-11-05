@@ -11,7 +11,9 @@ Download and store data from the Irish electricity market (I-SEM) in one tidy fo
 | `wind` | `wind_actual_mw`, `wind_forecast_mw` | EirGrid Smart Grid Dashboard | 15 min |
 | `demand` | `demand_actual_mw` | EirGrid Smart Grid Dashboard | 15 min |
 
-All values are in MW for the whole island (Ireland and Northern Ireland). Day-ahead prices from SEMO are next.
+All values are in MW for the whole island (Ireland and Northern Ireland).
+
+Day-ahead prices and volumes from SEMO (`dam_price_eur_mwh`, `dam_volume_mw`, half-hourly, for ROI and NI) can already be read from a results file with `semo.parse_market_result()`; downloading them is next.
 
 ## Quickstart
 
@@ -45,6 +47,7 @@ wind = storage.load("wind")
 ```
 isem_data/
 ├── eirgrid.py    # download from EirGrid and turn the JSON into a tidy table
+├── semo.py       # read SEMO day-ahead results files into a tidy table
 ├── storage.py    # save to / load from Parquet, without duplicate rows
 └── __main__.py   # the command line: python -m isem_data
 ```
@@ -58,6 +61,7 @@ isem_data/
 ## Data sources and caveats
 
 - **EirGrid Smart Grid Dashboard** ([smartgriddashboard.com](https://www.smartgriddashboard.com)): the JSON API behind its charts is public but not officially documented, so it may change without notice. Everything that depends on it is in `eirgrid.py`.
+- **SEMO** ([sem-o.com](https://www.sem-o.com)): day-ahead results files, one per auction. Timestamps are already UTC, and prices use a comma as the decimal point. `tests/fixtures/` holds the first lines of one real file for testing.
 - Check each provider's terms before redistributing the data. This repo stores code, not data.
 
 ## Development
