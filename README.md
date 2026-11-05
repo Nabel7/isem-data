@@ -64,6 +64,15 @@ wind = storage.load("wind")
 2 2026-10-19 23:30:00+00:00    ALL  wind_actual_mw  1779.0
 ```
 
+## Exploring the data
+
+[`notebooks/01_prices_and_drivers.ipynb`](notebooks/01_prices_and_drivers.ipynb) looks at a year of day-ahead prices next to wind and demand: how prices moved, what a typical day looks like, how much wind and net demand (demand minus wind) move the price, and what that means for forecasting.
+
+```bash
+pip install -e ".[notebooks]"
+jupyter lab notebooks/
+```
+
 ## Daily updates (macOS)
 
 `scripts/daily_update.sh` downloads the last 7 days of every dataset. Going back a week means days the Mac was off are filled in on the next run, and re-downloading days that are already saved changes nothing.
