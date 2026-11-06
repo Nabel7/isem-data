@@ -127,6 +127,20 @@ def test_list_files_reads_every_page(monkeypatch):
     }
 
 
+def test_list_files_asks_for_the_requested_report(monkeypatch):
+    asked_for = []
+
+    def fake_get(url, params, timeout):
+        asked_for.append(params["ResourceName"])
+        return FakeResponse(listing_page([], 1))
+
+    monkeypatch.setattr(semo.requests, "get", fake_get)
+
+    semo.list_files()
+    semo.list_files("PUB_DailyMeterDataD1")
+    assert asked_for == ["MarketResult_SEM-DA", "PUB_DailyMeterDataD1"]
+
+
 def test_list_files_keeps_the_newer_file_when_a_day_has_two(monkeypatch):
     # The list is requested oldest first, so a re-run for the same day comes later.
     page = listing_page([("2026-11-02", "first_run.csv"), ("2026-11-02", "re_run.csv")], 1)
@@ -142,7 +156,7 @@ def test_fetch_downloads_each_day_and_warns_about_missing_ones(monkeypatch, caps
         downloaded.append(name)
         return FIXTURE.read_text()
 
-    monkeypatch.setattr(semo, "list_files", lambda: {date(2026, 11, 2): "nov2.csv"})
+    monkeypatch.setattr(semo, "list_files", lambda files: {date(2026, 11, 2): "nov2.csv"})
     monkeypatch.setattr(semo, "download", fake_download)
     monkeypatch.setattr(semo.time, "sleep", lambda seconds: None)
 
@@ -150,11 +164,11 @@ def test_fetch_downloads_each_day_and_warns_about_missing_ones(monkeypatch, caps
 
     assert downloaded == ["nov2.csv"]
     assert len(df) == 4 * 48
-    assert "no day-ahead results file for 2026-11-03" in capsys.readouterr().out
+    assert "no MarketResult_SEM-DA file for 2026-11-03" in capsys.readouterr().out
 
 
 def test_fetch_with_no_files_gives_an_empty_table(monkeypatch):
-    monkeypatch.setattr(semo, "list_files", lambda: {})
+    monkeypatch.setattr(semo, "list_files", lambda files: {})
     df = semo.fetch(date(2026, 11, 2), date(2026, 11, 2))
     assert df.empty
     assert list(df.columns) == semo.COLUMNS
@@ -209,7 +223,7 @@ def test_each_parser_reads_only_its_own_part_of_the_file():
 
 
 def test_fetch_can_read_orders_instead_of_prices(monkeypatch):
-    monkeypatch.setattr(semo, "list_files", lambda: {date(2026, 11, 2): "nov2.csv"})
+    monkeypatch.setattr(semo, "list_files", lambda files: {date(2026, 11, 2): "nov2.csv"})
     monkeypatch.setattr(semo, "download", lambda name: ORDERS_FIXTURE.read_text())
     monkeypatch.setattr(semo.time, "sleep", lambda seconds: None)
 

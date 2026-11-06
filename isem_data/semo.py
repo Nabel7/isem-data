@@ -157,19 +157,20 @@ def parse_orders(text: str) -> pd.DataFrame:
     return df.dropna().reset_index(drop=True)
 
 
-def list_files() -> dict[date, str]:
-    """Ask SEMO which day-ahead results files exist: {delivery day: file name}.
+def list_files(files: str = DAY_AHEAD_FILES) -> dict[date, str]:
+    """Ask SEMO which files exist whose names start with `files`: {day: file name}.
 
-    The list comes back a page at a time (about 4 pages for a year of files).
+    The default is the day-ahead results files. The list comes back a page at a
+    time (about 4 pages for a year of day-ahead files).
     Each item looks like:
     {"ResourceName": "MarketResult_SEM-DA_PWR-MRC-D+1_20261101110000_...csv",
-     "Date": "2026-11-02T11:00:00", ...}   <- Date is the delivery day
+     "Date": "2026-11-02T11:00:00", ...}   <- Date is the delivery (or trading) day
     """
-    files = {}
+    names = {}
     page = 1
     while True:
         params = {
-            "ResourceName": DAY_AHEAD_FILES,
+            "ResourceName": files,
             "sort_by": "PublishTime",  # oldest first, so if a day ever has two files
             "order_by": "ASC",  # (a re-run), the newer one overwrites the older below
             "page_size": 100,
@@ -179,10 +180,10 @@ def list_files() -> dict[date, str]:
         response.raise_for_status()
         answer = response.json()
         for item in answer["items"]:
-            delivery_day = date.fromisoformat(item["Date"][:10])
-            files[delivery_day] = item["ResourceName"]
+            day = date.fromisoformat(item["Date"][:10])
+            names[day] = item["ResourceName"]
         if page >= answer["pagination"]["totalPages"]:
-            return files
+            return names
         page += 1
 
 
@@ -193,24 +194,28 @@ def download(name: str) -> str:
     return response.text
 
 
-def fetch(start: date, end: date, parse=parse_market_result) -> pd.DataFrame:
-    """Download every delivery day's results file from start to end and read it.
+def fetch(
+    start: date, end: date, parse=parse_market_result, files: str = DAY_AHEAD_FILES
+) -> pd.DataFrame:
+    """Download every day's file from start to end and read it.
 
     `parse` decides what to read from each file: parse_market_result for prices
     and volumes (the default), or parse_orders for the company orders.
+    `files` picks which of SEMO's reports to download (see list_files); the
+    balancing module uses it for its per-unit reports.
     """
     if start > end:
         raise ValueError(f"start must be on or before end (got start={start}, end={end})")
 
-    files = list_files()
+    names = list_files(files)
     frames = []
     day = start
     while day <= end:
-        if day in files:
-            frames.append(parse(download(files[day])))
-            time.sleep(1)  # be polite: each file is about 1 MB
+        if day in names:
+            frames.append(parse(download(names[day])))
+            time.sleep(1)  # be polite: each file is about 1-4 MB
         else:
-            print(f"warning: SEMO has no day-ahead results file for {day}")
+            print(f"warning: SEMO has no {files} file for {day}")
         day += timedelta(days=1)
 
     if not frames:
