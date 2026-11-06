@@ -1,0 +1,6 @@
+<?xml version = '1.0'?>
+<OutboundData xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"  xsi:noNamespaceSchemaLocation="mi-outbound-reports-isem.xsd" DatasetName="PUB_DailyMeterDataD1" DatasetType="DAILY" Date="2026-11-03" DateType="TRADE" PublishTime="2026-11-05T13:36:05">
+  <PUB_DailyMeterDataD1 ROW="1" TradeDate="2026-11-03" ParticipantName="IO_EIDAC" ResourceName="I_ROIEWIC" ResourceType="IU" StartTime="2026-11-03T00:00:00" EndTime="2026-11-03T00:29:59" Jurisdiction="ROI" MeteredMW="0"/>
+  <PUB_DailyMeterDataD1 ROW="2" TradeDate="2026-11-03" ParticipantName="IO_EIDAC" ResourceName="I_ROIEWIC" ResourceType="IU" StartTime="2026-11-03T00:30:00" EndTime="2026-11-03T00:59:59" Jurisdiction="ROI" MeteredMW="0"/>
+  <PUB_DailyMeterDataD1 ROW="1187" TradeDate="2026-11-03" ParticipantName="PT_400021" ResourceName="GU_407510" ResourceType="GEN" StartTime="2026-11-03T17:00:00" EndTime="2026-11-03T17:29:59" Jurisdiction="ROI" MeteredMW="5.075"/>
+</OutboundData>

@@ -12,6 +12,9 @@ Download and store data from the Irish electricity market (I-SEM) in one tidy fo
 | `demand` | `demand_actual_mw` | EirGrid Smart Grid Dashboard | 15 min |
 | `prices` | `dam_price_eur_mwh`, `dam_volume_mw` | SEMO day-ahead market results | 30 min |
 | `orders` | each company's cleared orders (see below) | SEMO day-ahead market results | 30 min |
+| `dispatch_instructions` | every instruction EirGrid gave each unit (see below) | SEMO report BM-037 | per instruction |
+| `availability` | MW each unit could have produced | SEMO report BM-101 | 30 min |
+| `metered` | MW each unit actually produced | SEMO report BM-086 | 30 min |
 
 EirGrid values are for the whole island (Ireland and Northern Ireland). Day-ahead prices and volumes are per bidding zone, `ROI` and `NI`.
 
@@ -36,6 +39,26 @@ python -m isem_data --datasets prices orders --start 2025-11-07   # about 8 minu
 | `quantity_mw` | `-50.5` | **+ bought, − sold** |
 
 In every half-hour the buys add up exactly to the sells, which is a handy check on the data. A week is about 140,000 rows (0.27 MB as Parquet), so a year is about 7 million rows and roughly 14 MB.
+
+### Per-unit balancing reports (dispatch-down)
+
+Three SEMO reports show, for every unit, what it was told to do, what it could have produced and what it did produce. For a wind farm, **availability minus metered output** is roughly its dispatch-down: output EirGrid told it not to produce. The dispatch instructions say why.
+
+| Dataset | Columns |
+|---|---|
+| `dispatch_instructions` | `timestamp_utc` (when it takes effect), `issued_utc`, `participant`, `unit`, `instruction_code`, `combination_code`, `instruction_mw` |
+| `availability` | `timestamp_utc`, `participant`, `unit`, `availability_mw` |
+| `metered` | `timestamp_utc`, `participant`, `unit`, `unit_type`, `region`, `metered_mw` |
+
+Wind farm instructions have `instruction_code` `WIND`, and `combination_code` gives the reason: `LOCL` constraint on (the local grid can't carry the power), `LCLO` constraint lifted, `CURL` curtailment on (too much wind for the whole island), `CRLO` curtailment lifted. Units are anonymised codes like `GU_407510`, not wind farm names.
+
+**SEMO only keeps these files online for about 2-3 months**, so start the daily updates early and back-fill what is still there:
+
+```bash
+python -m isem_data --datasets dispatch_instructions availability metered --start 2026-08-07
+```
+
+The metered and availability files appear about two days after the trading day. Each is roughly 17,000 rows a day.
 
 ## Quickstart
 
@@ -98,11 +121,12 @@ If the Mac is asleep at 14:00 the job runs when it wakes. If it is off for more 
 isem_data/
 ├── eirgrid.py    # download from EirGrid and turn the JSON into a tidy table
 ├── semo.py       # list, download and read SEMO day-ahead results files
+├── balancing.py  # read SEMO's per-unit balancing reports (dispatch-down)
 ├── storage.py    # save to / load from Parquet, without duplicate rows (each dataset has a key)
 └── __main__.py   # the command line: python -m isem_data
 ```
 
-- **One tidy format.** Every dataset has the same four columns: `timestamp_utc`, `region`, `series`, `value`. The unit is part of the series name (`wind_actual_mw`), so MW, prices and volumes all fit the same shape. New sources only need to produce it.
+- **One tidy format.** The market-wide datasets (wind, demand, prices) have the same four columns: `timestamp_utc`, `region`, `series`, `value`. The unit is part of the series name (`wind_actual_mw`), so MW, prices and volumes all fit the same shape. Per-unit datasets (orders and the balancing reports) keep their own columns, with the unit in the column name (`metered_mw`).
 - **UTC everywhere.** EirGrid reports Irish local time. On the night the clocks go back, 01:00–01:59 happens twice and the two hours can't be told apart, so those rows are dropped rather than guessed.
 - **Gaps are reported, not hidden.** Readings that are missing or empty are left out of the table, and the download prints a warning for each stretch of missing readings, e.g. `warning: wind_actual_mw is missing 4 reading(s) from 2026-11-01 14:00:00+00:00 to 2026-11-01 14:45:00+00:00`. The repeated hour on the night the clocks go back always shows up here.
 - **Safe to re-run.** Saving replaces rows with the same timestamp, region and series, so downloading the same days twice changes nothing. Newer downloads win, which matters because forecasts get revised.
@@ -111,7 +135,7 @@ isem_data/
 ## Data sources and caveats
 
 - **EirGrid Smart Grid Dashboard** ([smartgriddashboard.com](https://www.smartgriddashboard.com)): the JSON API behind its charts is public but not officially documented, so it may change without notice. Everything that depends on it is in `eirgrid.py`.
-- **SEMO** ([sem-o.com](https://www.sem-o.com)): day-ahead results files, one per delivery day, listed through SEMO's public reports API for about a year before they drop off. A file appears in the list a day or two after its auction. Timestamps are already UTC, and prices use a comma as the decimal point. `tests/fixtures/` holds the first lines of one real file for testing.
+- **SEMO** ([sem-o.com](https://www.sem-o.com)): day-ahead results files, one per delivery day, listed through SEMO's public reports API for about a year before they drop off. A file appears in the list a day or two after its auction. Timestamps are already UTC, and prices use a comma as the decimal point. The per-unit balancing reports come through the same API as XML files, kept for only about 2-3 months; their times are UTC too (the day the clocks go back has 50 half-hours, none repeated). `tests/fixtures/` holds excerpts of real files for testing.
 - Check each provider's terms before redistributing the data. This repo stores code, not data.
 
 ## Development
@@ -125,6 +149,7 @@ pytest -q            # tests use made-up data and never touch the internet
 
 - [x] Day-ahead market prices from SEMO
 - [x] Company order results from the same SEMO files
+- [x] Per-unit dispatch instructions, availability and metered output (dispatch-down)
 - [x] Daily updates on a Mac (launchd)
 - [ ] Daily updates in the cloud: a scheduled GitHub Action writing to object storage
 - [ ] Query the data with DuckDB
