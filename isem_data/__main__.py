@@ -5,7 +5,7 @@ python -m isem_data --start 2026-10-01 --end 2026-10-31
 python -m isem_data --datasets wind
 python -m isem_data --datasets prices --start 2025-11-07   # back-fill SEMO's year of prices
 python -m isem_data --datasets orders --start 2025-11-07   # ...and of company orders
-python -m isem_data --datasets dispatch_instructions availability metered --start 2026-08-07
+python -m isem_data --datasets dispatch_instructions availability metered units --start 2026-08-07
                                                       # SEMO's per-unit reports (~2-3 months online)
 python -m isem_data --data-dir ~/grid-data            # save somewhere else
 """
@@ -18,7 +18,7 @@ from . import balancing, eirgrid, semo, storage
 
 # Every dataset the command can download: EirGrid's, SEMO's day-ahead prices and
 # company orders (both read from the same SEMO files), and SEMO's per-unit
-# balancing reports (dispatch instructions, availability, metered output).
+# balancing reports (dispatch instructions, availability, metered output, unit list).
 DATASETS = [*eirgrid.DATASETS, "prices", "orders", *balancing.DATASETS]
 
 
