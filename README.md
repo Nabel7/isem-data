@@ -64,6 +64,25 @@ python -m isem_data --datasets dispatch_instructions availability metered units 
 
 The metered and availability files appear about two days after the trading day. Each is roughly 17,000 rows a day.
 
+### Calculating dispatch-down
+
+`isem_data/dispatch_down.py` turns the four datasets into one row per wind farm and half-hour, with the energy produced, the energy lost and why:
+
+```python
+from isem_data import dispatch_down, storage
+
+farms = dispatch_down.farm_half_hours(
+    storage.load("availability"),
+    storage.load("metered"),
+    storage.load("dispatch_instructions"),
+    storage.load("units"),
+)
+dispatch_down.totals(farms)  # GWh produced, lost to constraint / curtailment, %
+farms.groupby("region").apply(dispatch_down.totals)  # the same, split by ROI and NI
+```
+
+Constraint and curtailment are tracked as two separate switches, since a farm can be under both; when both are on, the loss counts as a constraint. Energy only counts as lost while an instruction is in force. Checked against EirGrid's official monthly figures in [`notebooks/02_dispatch_down_checks.ipynb`](notebooks/02_dispatch_down_checks.ipynb): September 2026 all-island 24.3% against EirGrid's 22.7%.
+
 ## Quickstart
 
 ```bash
@@ -128,6 +147,7 @@ isem_data/
 ├── eirgrid.py    # download from EirGrid and turn the JSON into a tidy table
 ├── semo.py       # list, download and read SEMO day-ahead results files
 ├── balancing.py  # read SEMO's per-unit balancing reports (dispatch-down)
+├── dispatch_down.py  # per-farm, per-half-hour dispatch-down from those reports
 ├── storage.py    # save to / load from Parquet, without duplicate rows (each dataset has a key)
 └── __main__.py   # the command line: python -m isem_data
 ```
@@ -156,6 +176,7 @@ pytest -q            # tests use made-up data and never touch the internet
 - [x] Day-ahead market prices from SEMO
 - [x] Company order results from the same SEMO files
 - [x] Per-unit dispatch instructions, availability and metered output (dispatch-down)
+- [x] Dispatch-down per farm and half-hour, checked against EirGrid's monthly figures
 - [x] Daily updates on a Mac (launchd)
 - [ ] Daily updates in the cloud: a scheduled GitHub Action writing to object storage
 - [ ] Query the data with DuckDB
