@@ -14,7 +14,8 @@ Download and store data from the Irish electricity market (I-SEM) in one tidy fo
 | `orders` | each company's cleared orders (see below) | SEMO day-ahead market results | 30 min |
 | `dispatch_instructions` | every instruction EirGrid gave each unit (see below) | SEMO report BM-037 | per instruction |
 | `availability` | MW each unit could have produced | SEMO report BM-101 | 30 min |
-| `metered` | MW each unit actually produced | SEMO report BM-086 | 30 min |
+| `metered` | MWh each unit actually produced in each half-hour | SEMO report BM-086 | 30 min |
+| `units` | each unit's company, type, region and fuel (e.g. `WIND`) | SEMO report BM-091 | latest list |
 
 EirGrid values are for the whole island (Ireland and Northern Ireland). Day-ahead prices and volumes are per bidding zone, `ROI` and `NI`.
 
@@ -48,14 +49,17 @@ Three SEMO reports show, for every unit, what it was told to do, what it could h
 |---|---|
 | `dispatch_instructions` | `timestamp_utc` (when it takes effect), `issued_utc`, `participant`, `unit`, `instruction_code`, `combination_code`, `instruction_mw` |
 | `availability` | `timestamp_utc`, `participant`, `unit`, `availability_mw` |
-| `metered` | `timestamp_utc`, `participant`, `unit`, `unit_type`, `region`, `metered_mw` |
+| `metered` | `timestamp_utc`, `participant`, `unit`, `unit_type`, `region`, `metered_mwh` |
+| `units` | `trade_date`, `participant`, `company`, `unit`, `unit_type`, `region`, `fuel_type` (one row per unit, the latest seen) |
 
-Wind farm instructions have `instruction_code` `WIND`, and `combination_code` gives the reason: `LOCL` constraint on (the local grid can't carry the power), `LCLO` constraint lifted, `CURL` curtailment on (too much wind for the whole island), `CRLO` curtailment lifted. Units are anonymised codes like `GU_407510`, not wind farm names.
+Wind farm instructions have `instruction_code` `WIND`, and `combination_code` gives the reason: `LOCL` constraint on (the local grid can't carry the power), `LCLO` constraint lifted, `CURL` curtailment on (too much wind for the whole island), `CRLO` curtailment lifted. Units are anonymised codes like `GU_407510`, not wind farm names, but `units` says which company owns each one and its fuel type, so `fuel_type == "WIND"` picks out the wind farms.
+
+**Watch the units.** SEMO calls the meter column `MeteredMW`, but it is energy per half-hour (MWh): a unit running steadily at 340 MW meters about 170. We store it as `metered_mwh`; multiply by 2 for the average MW over the half-hour, to compare with `availability_mw`.
 
 **SEMO only keeps these files online for about 2-3 months**, so start the daily updates early and back-fill what is still there:
 
 ```bash
-python -m isem_data --datasets dispatch_instructions availability metered --start 2026-08-07
+python -m isem_data --datasets dispatch_instructions availability metered units --start 2026-08-07
 ```
 
 The metered and availability files appear about two days after the trading day. Each is roughly 17,000 rows a day.
@@ -90,6 +94,8 @@ wind = storage.load("wind")
 ## Exploring the data
 
 [`notebooks/01_prices_and_drivers.ipynb`](notebooks/01_prices_and_drivers.ipynb) looks at a year of day-ahead prices next to wind and demand: how prices moved, what a typical day looks like, how much wind and net demand (demand minus wind) move the price, and what that means for forecasting.
+
+[`notebooks/02_dispatch_down_checks.ipynb`](notebooks/02_dispatch_down_checks.ipynb) checks the per-unit balancing data: which units are wind farms, what units the numbers are in, whether the farms add up to EirGrid's island total, and a first estimate of dispatch-down (constraint vs curtailment, by month, region and farm) against outside figures.
 
 ```bash
 pip install -e ".[notebooks]"
@@ -126,7 +132,7 @@ isem_data/
 └── __main__.py   # the command line: python -m isem_data
 ```
 
-- **One tidy format.** The market-wide datasets (wind, demand, prices) have the same four columns: `timestamp_utc`, `region`, `series`, `value`. The unit is part of the series name (`wind_actual_mw`), so MW, prices and volumes all fit the same shape. Per-unit datasets (orders and the balancing reports) keep their own columns, with the unit in the column name (`metered_mw`).
+- **One tidy format.** The market-wide datasets (wind, demand, prices) have the same four columns: `timestamp_utc`, `region`, `series`, `value`. The unit is part of the series name (`wind_actual_mw`), so MW, prices and volumes all fit the same shape. Per-unit datasets (orders and the balancing reports) keep their own columns, with the unit in the column name (`metered_mwh`).
 - **UTC everywhere.** EirGrid reports Irish local time. On the night the clocks go back, 01:00–01:59 happens twice and the two hours can't be told apart, so those rows are dropped rather than guessed.
 - **Gaps are reported, not hidden.** Readings that are missing or empty are left out of the table, and the download prints a warning for each stretch of missing readings, e.g. `warning: wind_actual_mw is missing 4 reading(s) from 2026-11-01 14:00:00+00:00 to 2026-11-01 14:45:00+00:00`. The repeated hour on the night the clocks go back always shows up here.
 - **Safe to re-run.** Saving replaces rows with the same timestamp, region and series, so downloading the same days twice changes nothing. Newer downloads win, which matters because forecasts get revised.

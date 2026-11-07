@@ -9,6 +9,8 @@ The fixtures are excerpts of real files, keeping the header line and the closing
   the clocks went back.
 - `semo_metered_2026-11-03.xml` (BM-086): two interconnector rows and one half-hour of
   GU_407510.
+- `semo_units_2026-11-03.xml` (BM-091): an interconnector, the wind farm GU_407510 and
+  a gas unit, GU_400930. Units are repeated within a file, as in the real one.
 """
 
 from datetime import date
@@ -84,7 +86,7 @@ def test_the_day_the_clocks_go_back_has_50_distinct_utc_half_hours():
 def test_metered_output_is_read_with_unit_type_and_region():
     df = parse_fixture("metered", "semo_metered_2026-11-03.xml")
     wind = df[df["unit"] == "GU_407510"].iloc[0]
-    assert wind["metered_mw"] == 5.075
+    assert wind["metered_mwh"] == 5.075  # energy in the half-hour: about 10 MW on average
     assert wind["unit_type"] == "GEN"
     assert wind["region"] == "ROI"
     assert set(df["unit_type"]) == {"GEN", "IU"}
@@ -126,3 +128,16 @@ def test_fetch_asks_semo_for_the_right_report(monkeypatch):
 
     assert asked_for == ["PUB_DailyMeterDataD1"]
     assert len(df) == 3
+
+
+def test_unit_list_keeps_one_row_per_unit_with_company_and_fuel(tmp_path):
+    df = parse_fixture("units", "semo_units_2026-11-03.xml")
+    assert len(df) == 7  # repeated rows, as SEMO publishes them
+
+    storage.save(df, "units", data_dir=tmp_path, key=balancing.REPORTS["units"]["key"])
+    units = storage.load("units", data_dir=tmp_path).set_index("unit")
+
+    assert len(units) == 3
+    assert units.loc["GU_407510", "fuel_type"] == "WIND"
+    assert units.loc["GU_407510", "company"] == "SSE Airtricity Limited"
+    assert units.loc["IEU_ROIEWIC", "fuel_type"] == ""  # interconnectors have no fuel

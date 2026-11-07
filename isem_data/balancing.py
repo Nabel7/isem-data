@@ -4,7 +4,7 @@ what it could have produced, and what it actually produced.
 Together these show dispatch-down: wind or solar output the grid operator
 (EirGrid) told a farm not to produce. Roughly,
 
-    dispatch-down = availability - metered output
+    dispatch-down (MW) = availability - 2 * metered energy per half-hour
 
 and the dispatch instructions say why: a constraint (the local grid can't carry
 the power) or a curtailment (too much wind for the whole island).
@@ -14,6 +14,7 @@ the power) or a curtailment (too much wind for the whole island).
 | `dispatch_instructions` | BM-037 Daily Dispatch Instructions (D+1) | instruction to a unit |
 | `availability`          | BM-101 Average Outturn Availability      | unit and half-hour    |
 | `metered`               | BM-086 Daily Meter Data                  | unit and half-hour    |
+| `units`                 | BM-091 Unit Data                         | unit                  |
 
 Each report is one XML file per trading day, with every row's data in its
 attributes:
@@ -23,6 +24,11 @@ attributes:
         InstructionCode="WIND" InstructionCombinationCode="LOCL"
         InstrIssueTime="2026-11-03T15:29:02" .../>
 
+Despite its name, the meter report's MeteredMW is energy per half-hour (MWh), not
+MW: a unit told to run at 340 MW meters about 170 per half-hour. So we call the
+column metered_mwh, and its average MW over the half-hour is metered_mwh * 2.
+Availability is in MW.
+
 Times are UTC: the day the clocks went back (25 Oct 2026) has 50 half-hours
 starting at 23:00 on 24 Oct, none repeated.
 
@@ -31,7 +37,9 @@ Wind farm instructions have InstructionCode "WIND". The combination code says wh
     LOCL  constraint on      LCLO  constraint lifted
     CURL  curtailment on     CRLO  curtailment lifted
 
-Units are anonymised codes like GU_407510, not wind farm names.
+Units are anonymised codes like GU_407510, not wind farm names. The unit data
+report (BM-091) gives each unit's company and fuel type; solar farms appear to be
+listed as WIND (unconfirmed).
 
 SEMO only keeps these files online for about 2-3 months (much less than the
 day-ahead files), so the daily download is the only way to build up a history.
@@ -86,10 +94,26 @@ REPORTS = {
             "ResourceName": "unit",
             "ResourceType": "unit_type",
             "Jurisdiction": "region",
-            "MeteredMW": "metered_mw",
+            "MeteredMW": "metered_mwh",
         },
-        "numbers": ["metered_mw"],
+        "numbers": ["metered_mwh"],
         "key": ["timestamp_utc", "unit"],
+    },
+    # Who owns each unit and what it runs on (WIND, GAS, BATTERY_STORAGE, ...).
+    # One row per unit: newer files replace older ones, so this is the latest list.
+    "units": {
+        "files": "PUB_DailyUnitData",
+        "columns": {
+            "TradeDate": "trade_date",
+            "ParticipantName": "participant",
+            "ParticipantFullName": "company",
+            "ResourceName": "unit",
+            "ResourceType": "unit_type",
+            "Jurisdiction": "region",
+            "FuelType": "fuel_type",
+        },
+        "numbers": [],
+        "key": ["unit"],
     },
 }
 

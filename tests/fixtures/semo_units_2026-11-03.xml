@@ -1,0 +1,10 @@
+<?xml version = '1.0'?>
+<OutboundData xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"  xsi:noNamespaceSchemaLocation="mi-outbound-reports-isem.xsd" DatasetName="PUB_DailyUnitData" DatasetType="DAILY" Date="2026-11-03" DateType="TRADE" PublishTime="2026-11-04T11:01:51">
+  <PUB_DailyUnitData ROW="1" TradeDate="2026-11-03" ParticipantName="IA_EIRGRID" ParticipantFullName="EirGrid (acting as Interconnector Administrator)" ResourceName="IEU_ROIEWIC" ResourceType="IEU" Jurisdiction="ROI"/>
+  <PUB_DailyUnitData ROW="2" TradeDate="2026-11-03" ParticipantName="IA_EIRGRID" ParticipantFullName="EirGrid (acting as Interconnector Administrator)" ResourceName="IEU_ROIEWIC" ResourceType="IEU" Jurisdiction="ROI"/>
+  <PUB_DailyUnitData ROW="89" TradeDate="2026-11-03" ParticipantName="PT_400021" ParticipantFullName="SSE Airtricity Limited" ResourceName="GU_407510" ResourceType="GEN" Jurisdiction="ROI" FuelType="WIND"/>
+  <PUB_DailyUnitData ROW="115" TradeDate="2026-11-03" ParticipantName="PT_400028" ParticipantFullName="Bord Gais Energy Limited" ResourceName="GU_400930" ResourceType="GEN" Jurisdiction="ROI" FuelType="MULTI_FUEL"/>
+  <PUB_DailyUnitData ROW="116" TradeDate="2026-11-03" ParticipantName="PT_400028" ParticipantFullName="Bord Gais Energy Limited" ResourceName="GU_400930" ResourceType="GEN" Jurisdiction="ROI" FuelType="MULTI_FUEL"/>
+  <PUB_DailyUnitData ROW="117" TradeDate="2026-11-03" ParticipantName="PT_400028" ParticipantFullName="Bord Gais Energy Limited" ResourceName="GU_400930" ResourceType="GEN" Jurisdiction="ROI" FuelType="MULTI_FUEL"/>
+  <PUB_DailyUnitData ROW="118" TradeDate="2026-11-03" ParticipantName="PT_400028" ParticipantFullName="Bord Gais Energy Limited" ResourceName="GU_400930" ResourceType="GEN" Jurisdiction="ROI" FuelType="MULTI_FUEL"/>
+</OutboundData>
