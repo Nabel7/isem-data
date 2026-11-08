@@ -21,7 +21,7 @@ from . import balancing, eirgrid, locations, semo, storage
 # Every dataset the command can download: EirGrid's, SEMO's day-ahead prices and
 # company orders (both read from the same SEMO files), and SEMO's per-unit
 # balancing reports (dispatch instructions, availability, metered output, unit list).
-DATASETS = [*eirgrid.DATASETS, "prices", "orders", *balancing.DATASETS]
+DATASETS = [*eirgrid.DATASETS, "wind_regions", "prices", "orders", *balancing.DATASETS]
 
 # Reference data that barely changes, so it's left out of the default (daily) run:
 # SEMO's names for unit codes, and wind farm positions from OpenStreetMap.
@@ -57,7 +57,9 @@ def main() -> None:
             print(f"{dataset}: {len(df)} rows -> {path}")
             continue
         key = storage.KEY
-        if dataset == "prices":
+        if dataset == "wind_regions":
+            df = eirgrid.fetch_wind_regions(start, end)
+        elif dataset == "prices":
             df = semo.fetch(start, end)
         elif dataset == "orders":
             df = semo.fetch(start, end, parse=semo.parse_orders)

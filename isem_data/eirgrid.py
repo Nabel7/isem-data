@@ -87,6 +87,12 @@ def to_dataframe(rows: list[dict]) -> pd.DataFrame:
     return tidy.dropna().reset_index(drop=True)
 
 
+def fetch_wind_regions(start: date, end: date) -> pd.DataFrame:
+    """Wind for Ireland and Northern Ireland separately (the `wind` dataset is the whole island)."""
+    frames = [fetch("wind", start, end, region=region) for region in ["ROI", "NI"]]
+    return pd.concat(frames, ignore_index=True)
+
+
 def fetch(
     dataset: str, start: date, end: date, region: str = "ALL", chunk_days: int = 7
 ) -> pd.DataFrame:

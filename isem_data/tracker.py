@@ -1,6 +1,6 @@
 """Summaries of dispatch-down for the tracker website, and a command that writes them.
 
-python -m isem_data.tracker --out ../dispatch-down-tracker/src/data
+python -m isem_data.tracker --out ../dispatch-down-tracker/src/dispatch-down/data
 
 The website only reads these small files, never the raw data:
 
@@ -34,6 +34,17 @@ Every table has the same measures:
 
 Days and months are Irish clock time (Europe/Dublin), the way SEMO's trading
 days and EirGrid's monthly figures run, not UTC.
+
+monthly.csv and daily.csv describe the island's wind power, not just the units SEMO
+reports on, so they differ from the farm tables in two ways:
+
+- Solar farms are left out. SEMO lists them with fuel type WIND (see solar_units).
+- produced_mwh is all wind generation, from EirGrid's readings (the wind and
+  wind_regions datasets). The units in SEMO's reports make only about 85-88% of it, so
+  using their output alone would overstate the percentage. units_produced_mwh is what
+  those units made. Lost energy can only be measured for those units.
+
+The farm tables use each farm's own metered output.
 """
 
 import argparse
@@ -68,6 +79,42 @@ MEASURES = [
 ]
 
 
+def solar_units(farms: pd.DataFrame, names: pd.DataFrame | None = None) -> set[str]:
+    """The units that are really solar farms, as SEMO lists those with fuel type WIND too.
+
+    A unit is solar if its name says so, or if it has no availability at night but some
+    around midday. Judged in UTC hours, which are near enough for this test."""
+    hours = farms["timestamp_utc"].dt.hour
+    night = (
+        farms[hours.isin([22, 23, 0, 1, 2, 3])].groupby("unit")["availability_mw"].quantile(0.99)
+    )
+    midday = farms[hours.isin([10, 11, 12, 13])].groupby("unit")["availability_mw"].mean()
+    dark_at_night = night[(night < 0.05) & (midday.reindex(night.index) > 0.5)].index
+    named = set()
+    if names is not None:
+        is_solar = names["semo_name"].str.contains("solar", case=False, na=False)
+        named = set(names.loc[is_solar, "unit"]) & set(farms["unit"])
+    return set(dark_at_night) | named
+
+
+def wind_generation(wind: pd.DataFrame, farms: pd.DataFrame) -> pd.DataFrame:
+    """All wind generation in MWh by Irish day, month and region, from EirGrid's 15-minute
+    readings, for the same half-hours as `farms`: a day missing from the farm data is
+    missing here too, so a percentage compares like with like."""
+    actual = wind[wind["series"] == "wind_actual_mw"]
+    last = farms["timestamp_utc"].max() + pd.Timedelta(minutes=30)
+    actual = actual[(actual["timestamp_utc"] >= farms["timestamp_utc"].min())
+                    & (actual["timestamp_utc"] < last)]  # fmt: skip
+    local = actual["timestamp_utc"].dt.tz_convert(LOCAL_TIME)
+    table = actual.assign(
+        day=local.dt.strftime("%Y-%m-%d"),
+        month=local.dt.strftime("%Y-%m"),
+        generation_mwh=actual["value"] * 0.25,
+    )
+    table = table[table["day"].isin(farms["day"].unique())]
+    return table.groupby(["day", "month", "region"], as_index=False)["generation_mwh"].sum()
+
+
 def with_local_dates(farms: pd.DataFrame) -> pd.DataFrame:
     """Add each half-hour's Irish calendar day ("2026-10-25") and month ("2026-10")."""
     local = farms["timestamp_utc"].dt.tz_convert(LOCAL_TIME)
@@ -98,34 +145,49 @@ def sums(farms: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
     return table[MEASURES].reset_index()
 
 
-def by_region(farms: pd.DataFrame, period: str) -> pd.DataFrame:
-    """Sums per `period` ("day" or "month") for the whole island (ALL) and each region."""
+def by_region(
+    farms: pd.DataFrame, period: str, generation: pd.DataFrame | None = None
+) -> pd.DataFrame:
+    """Sums per `period` ("day" or "month") for the whole island (ALL) and each region.
+
+    With `generation` (from wind_generation), produced_mwh becomes all wind generation
+    and units_produced_mwh keeps what the units in SEMO's reports made. A region or day
+    EirGrid has no readings for keeps the units' own output."""
     whole_island = sums(farms, [period]).assign(region="ALL")
     regions = sums(farms, [period, "region"])
     table = pd.concat([whole_island, regions], ignore_index=True)
-    return table[[period, "region", *MEASURES]].sort_values([period, "region"])
+    columns = [period, "region", *MEASURES]
+    if generation is not None:
+        total = generation.groupby([period, "region"])["generation_mwh"].sum().rename("all_wind")
+        table = table.join(total, on=[period, "region"])
+        table["units_produced_mwh"] = table["produced_mwh"]
+        table["produced_mwh"] = table["all_wind"].fillna(table["produced_mwh"])
+        available = table["produced_mwh"] + table["lost_mwh"]
+        table["dispatch_down_pct"] = 100 * table["lost_mwh"] / available.where(available > 0)
+        columns.append("units_produced_mwh")
+    return table[columns].sort_values([period, "region"])
 
 
-def monthly(farms: pd.DataFrame) -> pd.DataFrame:
+def monthly(farms: pd.DataFrame, generation: pd.DataFrame | None = None) -> pd.DataFrame:
     """By month and region, with how many days of data each month has."""
-    table = by_region(farms, "month")
+    table = by_region(farms, "month", generation)
     days = farms.groupby("month")["day"].nunique().rename("days_with_data")
     in_month = pd.PeriodIndex(days.index, freq="M").days_in_month
     days = days.to_frame().assign(days_in_month=in_month)
     return table.merge(days, left_on="month", right_index=True)
 
 
-def daily(farms: pd.DataFrame) -> pd.DataFrame:
-    return by_region(farms, "day")
+def daily(farms: pd.DataFrame, generation: pd.DataFrame | None = None) -> pd.DataFrame:
+    return by_region(farms, "day", generation)
 
 
 def farm_list(
     farms: pd.DataFrame, units: pd.DataFrame, names: pd.DataFrame | None = None
 ) -> pd.DataFrame:
-    """One row per wind farm over the whole period, with its company, worst first.
+    """One row per farm over the whole period, with its company, worst first.
 
-    With `names` (the farm_names dataset), also SEMO's name for each unit and whether
-    it is wind or solar (judged from that name)."""
+    With `names` (the farm_names dataset), also SEMO's name for each unit. Says whether
+    each is wind or solar (see solar_units)."""
     table = sums(farms, ["unit"])
     seen = farms.groupby("unit").agg(
         region=("region", "first"), first_day=("day", "min"), last_day=("day", "max")
@@ -134,9 +196,8 @@ def farm_list(
     table = table.join(seen, on="unit").join(owners, on="unit")
     semo_names = pd.Series(dtype=str) if names is None else names.set_index("unit")["semo_name"]
     table["semo_name"] = [semo_names.get(unit, "") for unit in table["unit"]]
-    table["technology"] = (
-        table["semo_name"].str.lower().str.contains("solar").map({True: "solar", False: "wind"})
-    )
+    solar = solar_units(farms, names)
+    table["technology"] = ["solar" if unit in solar else "wind" for unit in table["unit"]]
     columns = ["unit", "semo_name", "technology", "company", "region", "first_day", "last_day"]
     return table[[*columns, *MEASURES]].sort_values(["lost_mwh", "unit"], ascending=[False, True])
 
@@ -295,13 +356,14 @@ def missing_days(farms: pd.DataFrame) -> list[str]:
     return [day.strftime("%Y-%m-%d") for day in expected.difference(days)]
 
 
-def meta(farms: pd.DataFrame) -> dict:
+def meta(farms: pd.DataFrame, solar: set[str] | None = None) -> dict:
     return {
         "built_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "first_day": farms["day"].min(),
         "last_day": farms["day"].max(),
         "missing_days": missing_days(farms),
         "farms": int(farms["unit"].nunique()),
+        "solar_units": len(solar or ()),
         "credit": CREDIT,
         "map_credit": MAP_CREDIT,
         "note": (
@@ -320,9 +382,12 @@ def build(
     prices: pd.DataFrame,
     names: pd.DataFrame | None = None,
     osm: pd.DataFrame | None = None,
+    wind: pd.DataFrame | None = None,
 ) -> dict[str, pd.DataFrame | dict]:
     """Every file's contents, keyed by file name. farm_locations.csv needs `names` and
-    `osm` (the farm_names and osm_wind_farms datasets)."""
+    `osm` (the farm_names and osm_wind_farms datasets). `wind` is EirGrid's wind readings
+    for ALL, ROI and NI (the wind and wind_regions datasets); without it, percentages
+    use only the output of the units in SEMO's reports."""
     farms = dispatch_down.farm_half_hours(availability, metered, instructions, units)
     farms = dispatch_down.add_market_value(farms, prices)
     farms = with_local_dates(farms)
@@ -332,16 +397,20 @@ def build(
         places = farm_locations(farms, units, names, osm)
     groups = farm_groups(table, places)
     table = groups.merge(table, on="unit")
+    # The island's figures are for wind power, so solar farms stay out of them.
+    solar = solar_units(farms, names)
+    wind_farms = farms[~farms["unit"].isin(solar)]
+    generation = None if wind is None else wind_generation(wind, wind_farms)
     files = {
-        "monthly.csv": monthly(farms),
-        "daily.csv": daily(farms),
+        "monthly.csv": monthly(wind_farms, generation),
+        "daily.csv": daily(wind_farms, generation),
         "farms.csv": table,
         "farm_monthly.csv": farm_monthly(farms),
         "farm_daily.csv": farm_daily(farms),
     }
     if places is not None:
         files["farm_locations.csv"] = places
-    files["meta.json"] = meta(farms)
+    files["meta.json"] = meta(farms, solar)
     files.update(farm_pages(farms, table, places))
     return files
 
@@ -390,6 +459,16 @@ def main() -> None:
     else:
         print("note: no farm_names / osm_wind_farms data, so no farm_locations.csv. Download")
         print("      them with: python -m isem_data --datasets farm_names osm_wind_farms")
+    wind_parts = [
+        storage.load(name, data_dir)
+        for name in ["wind", "wind_regions"]
+        if (data_dir / f"{name}.parquet").exists()
+    ]
+    if len(wind_parts) < 2:
+        print("note: wind or wind_regions data is missing, so some percentages use only the")
+        print(
+            "      units' output. Download with: python -m isem_data --datasets wind wind_regions"
+        )
     files = build(
         storage.load("availability", data_dir),
         storage.load("metered", data_dir),
@@ -398,6 +477,7 @@ def main() -> None:
         storage.load("prices", data_dir),
         names,
         osm,
+        pd.concat(wind_parts, ignore_index=True) if wind_parts else None,
     )
     paths = write(files, args.out.expanduser())
     pages = [path for path in paths if path.parent.name == "farms"]

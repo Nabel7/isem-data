@@ -9,6 +9,7 @@ Download and store data from the Irish electricity market (I-SEM) in one tidy fo
 | Dataset | Series | Source | Resolution |
 |---|---|---|---|
 | `wind` | `wind_actual_mw`, `wind_forecast_mw` | EirGrid Smart Grid Dashboard | 15 min |
+| `wind_regions` | the same as `wind`, for `ROI` and `NI` separately | EirGrid Smart Grid Dashboard | 15 min |
 | `demand` | `demand_actual_mw` | EirGrid Smart Grid Dashboard | 15 min |
 | `prices` | `dam_price_eur_mwh`, `dam_volume_mw` | SEMO day-ahead market results | 30 min |
 | `orders` | each company's cleared orders (see below) | SEMO day-ahead market results | 30 min |
@@ -17,7 +18,7 @@ Download and store data from the Irish electricity market (I-SEM) in one tidy fo
 | `metered` | MWh each unit actually produced in each half-hour | SEMO report BM-086 | 30 min |
 | `units` | each unit's company, type, region and fuel (e.g. `WIND`) | SEMO report BM-091 | latest list |
 
-EirGrid values are for the whole island (Ireland and Northern Ireland). Day-ahead prices and volumes are per bidding zone, `ROI` and `NI`.
+EirGrid values are for the whole island (Ireland and Northern Ireland), except `wind_regions`. Day-ahead prices and volumes are per bidding zone, `ROI` and `NI`.
 
 SEMO only keeps about a year of day-ahead files online, so back-fill early:
 
@@ -106,7 +107,7 @@ In November 2026 this named 164 of 217 farms with data (82% of the energy) and p
 `isem_data/tracker.py` writes the small summary files a website reads, so the raw data never has to leave this machine:
 
 ```bash
-python -m isem_data.tracker --out ../dispatch-down-tracker/src/data
+python -m isem_data.tracker --out ../dispatch-down-tracker/src/dispatch-down/data
 ```
 
 | File | One row per |
@@ -121,6 +122,8 @@ python -m isem_data.tracker --out ../dispatch-down-tracker/src/data
 | `farms/<id>.json` | one farm's web page: its units, daily, monthly and hour-of-day figures, and its last 14 days half-hour by half-hour |
 
 A farm page can cover several units: units matched to the same OpenStreetMap farm (phases such as Oweninny 1 and 2) share one. `farms.csv` says which page each unit is on (`farm_id`, `farm_name`). The farm pages are about 6 MB for two months; old ones are removed on each run.
+
+`monthly.csv` and `daily.csv` describe the island's wind power, so they leave out solar farms (SEMO lists them as wind; `solar_units` finds them by name, or by having no availability at night), and their `produced_mwh` is all wind generation from EirGrid's readings. The units in SEMO's reports make only about 85-88% of it, and using their output alone overstated the percentage by about 2 points. `units_produced_mwh` keeps what those units made. The farm tables use each farm's own metered output.
 
 Each table has `produced_mwh`, `constraint_mwh`, `curtailment_mwh`, `lost_mwh`, `dispatch_down_pct`, `lost_value_eur`, `half_hours` and `held_down_half_hours`. Days and months are Irish clock time, as SEMO's trading days and EirGrid's monthly figures are. Two months of data is under 1 MB; `farm_daily.csv` is most of it.
 
