@@ -1,0 +1,18 @@
+{
+  "elements": [
+    {"type": "relation", "id": 1, "center": {"lat": 54.17, "lon": -9.62},
+     "tags": {"power": "plant", "plant:source": "wind", "name": "Oweninny Wind Farm", "plant:output:electricity": "172 MW"}},
+    {"type": "way", "id": 2, "center": {"lat": 53.28, "lon": -7.55},
+     "tags": {"power": "plant", "plant:source": "wind", "name": "Cloncreen Wind Farm", "plant:output:electricity": "105 MW"}},
+    {"type": "relation", "id": 3, "center": {"lat": 51.95, "lon": -9.0},
+     "tags": {"power": "plant", "plant:source": "wind", "name": "Burren Wind Farm (Bawnmore 1)", "plant:output:electricity": "yes"}},
+    {"type": "node", "id": 4, "lat": 54.88, "lon": -7.93,
+     "tags": {"power": "plant", "generator:source": "wind", "name": "Dunneill Wind Farm", "plant:output:electricity": "800 kW"}},
+    {"type": "relation", "id": 5, "center": {"lat": 54.89, "lon": -7.95},
+     "tags": {"power": "plant", "plant:source": "wind", "name": "Kingsmountain Wind Farm"}},
+    {"type": "relation", "id": 6, "center": {"lat": 53.35, "lon": -9.45},
+     "tags": {"power": "plant", "plant:source": "wind", "name": "Galway Wind Park", "plant:output:electricity": "169 MW"}},
+    {"type": "way", "id": 7, "center": {"lat": 52.0, "lon": -8.0},
+     "tags": {"power": "plant", "plant:source": "wind"}}
+  ]
+}
