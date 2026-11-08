@@ -83,6 +83,27 @@ farms.groupby("region").apply(dispatch_down.totals)  # the same, split by ROI an
 
 Constraint and curtailment are tracked as two separate switches, since a farm can be under both; when both are on, the loss counts as a constraint. Energy only counts as lost while an instruction is in force. Checked against EirGrid's official monthly figures in [`notebooks/02_dispatch_down_checks.ipynb`](notebooks/02_dispatch_down_checks.ipynb): September 2026 all-island 24.3% against EirGrid's 22.7%.
 
+`dispatch_down.add_market_value(farms, storage.load("prices"))` adds `lost_value_eur`: the lost energy at the day-ahead price for the farm's zone. That's the market value of the energy, not what the owner lost (some dispatch-down is compensated), and it can be negative.
+
+### Data files for the tracker website
+
+`isem_data/tracker.py` writes the small summary files a website reads, so the raw data never has to leave this machine:
+
+```bash
+python -m isem_data.tracker --out ../dispatch-down-tracker/src/data
+```
+
+| File | One row per |
+|---|---|
+| `monthly.csv` | month and region (`ALL`, `ROI`, `NI`), with how many days of the month have data |
+| `daily.csv` | day and region |
+| `farms.csv` | wind farm over the whole period, with its company, worst first |
+| `farm_monthly.csv` | wind farm and month |
+| `farm_daily.csv` | wind farm and day |
+| `meta.json` | when it was built, the period, missing days, and the licence credit |
+
+Each table has `produced_mwh`, `constraint_mwh`, `curtailment_mwh`, `lost_mwh`, `dispatch_down_pct`, `lost_value_eur`, `half_hours` and `held_down_half_hours`. Days and months are Irish clock time, as SEMO's trading days and EirGrid's monthly figures are. Two months of data is under 1 MB; `farm_daily.csv` is most of it.
+
 ## Quickstart
 
 ```bash
@@ -148,6 +169,7 @@ isem_data/
 ├── semo.py       # list, download and read SEMO day-ahead results files
 ├── balancing.py  # read SEMO's per-unit balancing reports (dispatch-down)
 ├── dispatch_down.py  # per-farm, per-half-hour dispatch-down from those reports
+├── tracker.py    # summaries for the tracker website: python -m isem_data.tracker --out <folder>
 ├── storage.py    # save to / load from Parquet, without duplicate rows (each dataset has a key)
 └── __main__.py   # the command line: python -m isem_data
 ```
@@ -177,6 +199,7 @@ pytest -q            # tests use made-up data and never touch the internet
 - [x] Company order results from the same SEMO files
 - [x] Per-unit dispatch instructions, availability and metered output (dispatch-down)
 - [x] Dispatch-down per farm and half-hour, checked against EirGrid's monthly figures
+- [x] Summary files for a dispatch-down tracker website, with the market value of lost energy
 - [x] Daily updates on a Mac (launchd)
 - [ ] Daily updates in the cloud: a scheduled GitHub Action writing to object storage
 - [ ] Query the data with DuckDB

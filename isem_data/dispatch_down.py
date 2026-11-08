@@ -119,21 +119,43 @@ def farm_half_hours(
     return farms[COLUMNS]
 
 
+def add_market_value(farms: pd.DataFrame, prices: pd.DataFrame) -> pd.DataFrame:
+    """Add what the lost energy would have sold for at the day-ahead price.
+
+    lost_value_eur = lost_mwh * the day-ahead price for the farm's zone (ROI or
+    NI) in that half-hour. This is the market value of the energy, not what the
+    owner lost: some dispatch-down is compensated, and how much is disputed.
+    It can be negative when the price is. Half-hours without a price get NaN.
+
+    `prices` is the isem-data prices dataset.
+    """
+    price = prices[prices["series"] == "dam_price_eur_mwh"]
+    price = price[["timestamp_utc", "region", "value"]].rename(columns={"value": "price_eur_mwh"})
+    farms = farms.drop(columns=["price_eur_mwh", "lost_value_eur"], errors="ignore")
+    farms = farms.merge(price, on=["timestamp_utc", "region"], how="left")
+    farms["lost_value_eur"] = farms["lost_mwh"] * farms["price_eur_mwh"]
+    return farms
+
+
 def totals(farms: pd.DataFrame) -> pd.Series:
     """Add up farm half-hours: GWh produced and lost (by reason), and the dispatch-down %.
 
     Dispatch-down % is lost / (produced + lost): the share of the energy the
     wind allowed that was not produced. Use it with groupby to split by month,
     region or farm, e.g. farms.groupby("region").apply(totals).
+
+    If add_market_value has been applied, the total value of the lost energy is
+    included too (half-hours without a price count as zero).
     """
     lost = farms.groupby("reason")["lost_mwh"].sum()
     produced = farms["produced_mwh"].sum()
     available = produced + lost.sum()
-    return pd.Series(
-        {
-            "produced_gwh": produced / 1000,
-            "constraint_gwh": lost.get("constraint", 0.0) / 1000,
-            "curtailment_gwh": lost.get("curtailment", 0.0) / 1000,
-            "dispatch_down_pct": 100 * lost.sum() / available if available else float("nan"),
-        }
-    )
+    result = {
+        "produced_gwh": produced / 1000,
+        "constraint_gwh": lost.get("constraint", 0.0) / 1000,
+        "curtailment_gwh": lost.get("curtailment", 0.0) / 1000,
+        "dispatch_down_pct": 100 * lost.sum() / available if available else float("nan"),
+    }
+    if "lost_value_eur" in farms:
+        result["lost_value_eur"] = farms["lost_value_eur"].sum()
+    return pd.Series(result)
