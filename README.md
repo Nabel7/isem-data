@@ -85,6 +85,22 @@ Constraint and curtailment are tracked as two separate switches, since a farm ca
 
 `dispatch_down.add_market_value(farms, storage.load("prices"))` adds `lost_value_eur`: the lost energy at the day-ahead price for the farm's zone. That's the market value of the energy, not what the owner lost (some dispatch-down is compensated), and it can be negative.
 
+### Farm names and positions
+
+SEMO's per-unit data uses anonymous codes (`GU_405140`). `isem_data/locations.py` names them and puts them on a map:
+
+1. **Names** from SEMO's own PDFs: the yearly loss adjustment factor (CLAF) publication for Irish units (with each unit's substation), and lists of registered units, which add Northern Ireland. Reading them needs `pdftotext` (`brew install poppler`).
+2. **Positions** of wind farms from OpenStreetMap, through the Overpass API (retried with back-off when the public server is busy).
+3. **Matching** each named wind unit to the OpenStreetMap farm with the most similar name ("Oweninney Windfarm 1" -> "Oweninny Wind Farm"). [`isem_data/corrections.csv`](isem_data/corrections.csv) fixes the ones names can't, e.g. Seecon and Uggool -> Galway Wind Park.
+
+These change rarely, so they're not part of the daily run. Refresh them now and then:
+
+```bash
+python -m isem_data --datasets farm_names osm_wind_farms
+```
+
+In November 2026 this named 164 of 217 farms with data (82% of the energy) and placed 135 on the map. The rest are mostly suppliers' grouped units that don't name a farm. OpenStreetMap data is © OpenStreetMap contributors under the Open Database Licence.
+
 ### Data files for the tracker website
 
 `isem_data/tracker.py` writes the small summary files a website reads, so the raw data never has to leave this machine:
@@ -100,7 +116,11 @@ python -m isem_data.tracker --out ../dispatch-down-tracker/src/data
 | `farms.csv` | wind farm over the whole period, with its company, worst first |
 | `farm_monthly.csv` | wind farm and month |
 | `farm_daily.csv` | wind farm and day |
-| `meta.json` | when it was built, the period, missing days, and the licence credit |
+| `farm_locations.csv` | wind farm: matched OpenStreetMap farm and position (needs the two datasets above) |
+| `meta.json` | when it was built, the period, missing days, and the licence credits |
+| `farms/<id>.json` | one farm's web page: its units, daily, monthly and hour-of-day figures, and its last 14 days half-hour by half-hour |
+
+A farm page can cover several units: units matched to the same OpenStreetMap farm (phases such as Oweninny 1 and 2) share one. `farms.csv` says which page each unit is on (`farm_id`, `farm_name`). The farm pages are about 6 MB for two months; old ones are removed on each run.
 
 Each table has `produced_mwh`, `constraint_mwh`, `curtailment_mwh`, `lost_mwh`, `dispatch_down_pct`, `lost_value_eur`, `half_hours` and `held_down_half_hours`. Days and months are Irish clock time, as SEMO's trading days and EirGrid's monthly figures are. Two months of data is under 1 MB; `farm_daily.csv` is most of it.
 
@@ -170,6 +190,8 @@ isem_data/
 ├── balancing.py  # read SEMO's per-unit balancing reports (dispatch-down)
 ├── dispatch_down.py  # per-farm, per-half-hour dispatch-down from those reports
 ├── tracker.py    # summaries for the tracker website: python -m isem_data.tracker --out <folder>
+├── locations.py  # farm names (SEMO PDFs) and positions (OpenStreetMap), matched by name
+├── corrections.csv  # hand fixes to that matching
 ├── storage.py    # save to / load from Parquet, without duplicate rows (each dataset has a key)
 └── __main__.py   # the command line: python -m isem_data
 ```
@@ -200,6 +222,7 @@ pytest -q            # tests use made-up data and never touch the internet
 - [x] Per-unit dispatch instructions, availability and metered output (dispatch-down)
 - [x] Dispatch-down per farm and half-hour, checked against EirGrid's monthly figures
 - [x] Summary files for a dispatch-down tracker website, with the market value of lost energy
+- [x] Farm names and map positions for the wind units
 - [x] Daily updates on a Mac (launchd)
 - [ ] Daily updates in the cloud: a scheduled GitHub Action writing to object storage
 - [ ] Query the data with DuckDB

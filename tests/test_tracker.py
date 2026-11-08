@@ -184,6 +184,7 @@ def test_build_and_write(tmp_path):
         "farm_monthly.csv",
         "farm_daily.csv",
         "meta.json",
+        "gu-a.json",  # the farm's page, named after its unit code as it has no name
     }
     daily = pd.read_csv(tmp_path / "daily.csv")
     row = daily[daily["region"] == "ALL"].iloc[0]
@@ -196,3 +197,122 @@ def test_build_and_write(tmp_path):
     assert meta["credit"] == "Supported by EirGrid Group Data"
     assert meta["first_day"] == meta["last_day"] == "2026-11-10"
     assert meta["missing_days"] == []
+
+
+def test_farm_list_adds_semo_names_and_spots_solar():
+    units = pd.DataFrame({"unit": ["GU_A", "GU_B"], "company": ["Alpha", "Beta"]})
+    names = pd.DataFrame({"unit": ["GU_A", "GU_B"], "semo_name": ["Alpha Windfarm", "Beta Solar"]})
+    table = tracker.farm_list(local(), units, names).set_index("unit")
+    assert table.loc["GU_A", "semo_name"] == "Alpha Windfarm"
+    assert table.loc["GU_A", "technology"] == "wind"
+    assert table.loc["GU_B", "technology"] == "solar"
+
+
+def test_farm_locations_are_written_with_names_and_osm(tmp_path):
+    t = half_hour("2026-11-10 12:00")
+    files = tracker.build(
+        availability=pd.DataFrame(
+            {"timestamp_utc": [t], "unit": ["GU_A"], "availability_mw": [20.0]}
+        ),
+        metered=pd.DataFrame(
+            {"timestamp_utc": [t], "unit": ["GU_A"], "metered_mwh": [5.0], "region": ["ROI"]}
+        ),
+        instructions=pd.DataFrame(
+            {
+                "timestamp_utc": [half_hour("2026-11-09 23:00")],
+                "unit": ["GU_A"],
+                "instruction_code": ["WIND"],
+                "combination_code": ["CURL"],
+            }
+        ),
+        units=pd.DataFrame({"unit": ["GU_A"], "fuel_type": ["WIND"], "company": ["Alpha"]}),
+        prices=make_prices(),
+        names=pd.DataFrame({"unit": ["GU_A"], "semo_name": ["Cloncreen Windfarm"]}),
+        osm=pd.DataFrame(
+            {
+                "osm_id": ["way/2"],
+                "osm_name": ["Cloncreen Wind Farm"],
+                "lat": [53.28],
+                "lon": [-7.55],
+                "capacity_mw": [105.0],
+            }
+        ),
+    )
+    tracker.write(files, tmp_path)
+    placed = pd.read_csv(tmp_path / "farm_locations.csv").iloc[0]
+    assert placed["farm_name"] == "Cloncreen Wind Farm"
+    assert placed["located_by"] == "name"
+    assert (placed["lat"], placed["lon"]) == (53.28, -7.55)
+    assert "OpenStreetMap" in files["meta.json"]["map_credit"]
+
+
+def test_slug_makes_a_web_address_safe_id():
+    assert tracker.slug("Oweninny Wind Farm") == "oweninny-wind-farm"
+    assert tracker.slug("Mín na Leice (Phase 2)") == "min-na-leice-phase-2"
+    assert tracker.slug("GU_405140") == "gu-405140"
+
+
+def test_phases_matched_to_one_farm_share_a_page():
+    table = pd.DataFrame(
+        {
+            "unit": ["GU_1", "GU_2", "GU_3", "GU_4"],
+            "semo_name": ["Oweninney Windfarm 1", "Oweninney Windfarm 2", "Lonely Windfarm", ""],
+        }
+    )
+    places = pd.DataFrame(
+        {
+            "unit": ["GU_1", "GU_2", "GU_3", "GU_4"],
+            "farm_name": ["Oweninny Wind Farm", "Oweninny Wind Farm", "", ""],
+            "located_by": ["name", "name", "", ""],
+        }
+    )
+    groups = tracker.farm_groups(table, places).set_index("unit")
+    assert groups.loc["GU_1", "farm_id"] == groups.loc["GU_2", "farm_id"] == "oweninny-wind-farm"
+    assert groups.loc["GU_3", "farm_name"] == "Lonely Windfarm"  # not placed: SEMO's name
+    assert groups.loc["GU_4", "farm_id"] == "gu-4"  # no name at all: the unit code
+
+
+def test_different_names_with_the_same_id_are_numbered():
+    table = pd.DataFrame({"unit": ["GU_1", "GU_2"], "semo_name": ["Bog Hill", "Bog-Hill"]})
+    ids = set(tracker.farm_groups(table)["farm_id"])
+    assert ids == {"bog-hill", "bog-hill-2"}
+
+
+def test_farm_page_adds_up_its_units_and_keeps_recent_half_hours():
+    farms = make_farms(
+        [
+            {"timestamp_utc": "2026-11-10 12:00", "unit": "GU_1", "region": "ROI",
+             "availability_mw": 10.0, "output_mw": 4.0,
+             "reason": "constraint", "produced_mwh": 2.0, "lost_mwh": 3.0},
+            {"timestamp_utc": "2026-11-10 12:00", "unit": "GU_2", "region": "ROI",
+             "availability_mw": 6.0, "output_mw": 6.0,
+             "reason": "none", "produced_mwh": 3.0, "lost_mwh": 0.0},
+            {"timestamp_utc": "2026-11-10 13:00", "unit": "GU_1", "region": "ROI",
+             "availability_mw": 8.0, "output_mw": 8.0,
+             "reason": "curtailment", "produced_mwh": 4.0, "lost_mwh": 0.0},
+        ]
+    )  # fmt: skip
+    farms = tracker.with_local_dates(farms)
+    units = pd.DataFrame({"unit": ["GU_1", "GU_2"], "company": ["Mayo Wind", "Mayo Wind"]})
+    table = tracker.farm_list(farms, units)
+    table = tracker.farm_groups(table).assign(farm_id="mayo", farm_name="Mayo").merge(table)
+
+    page = tracker.farm_pages(farms, table)["farms/mayo.json"]
+
+    assert page["name"] == "Mayo"
+    assert [u["unit"] for u in page["units"]] == ["GU_1", "GU_2"]  # most lost first
+    assert page["companies"] == ["Mayo Wind"]
+    assert page["daily"] == [
+        {"day": "2026-11-10", "produced_mwh": 9.0, "constraint_mwh": 3.0,
+         "curtailment_mwh": 0.0, "lost_mwh": 3.0, "dispatch_down_pct": 25.0,
+         "lost_value_eur": 0.0, "half_hours": 3, "held_down_half_hours": 2}
+    ]  # fmt: skip
+    assert {row["hour"] for row in page["hours"]} == {12, 13}  # Irish time = UTC in November
+
+    recent = page["recent"]
+    assert recent["start"] == "2026-10-28T00:00Z"  # 14 days, ending on the last day
+    i = 13 * 48 + 24  # 10 Nov 12:00
+    assert recent["available_mw"][i : i + 3] == [16.0, None, 8.0]  # 12:30 has no data
+    assert recent["output_mw"][i] == 10.0
+    assert recent["reason"][i : i + 3] == "C?U"
+    assert set(recent["reason"][:i]) == {"?"}

@@ -23,6 +23,9 @@ notebooks = ["jupyter>=1.0", "matplotlib>=3.7"]
 [tool.setuptools.packages.find]
 include = ["isem_data*"]
 
+[tool.setuptools.package-data]
+isem_data = ["corrections.csv"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 

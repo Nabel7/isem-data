@@ -1,0 +1,10 @@
+List of Registered Units 28/08/2018
+
+Associated Account                                         TS ID       Unit ID               Unit Name                                                               Unit Type                Intermediary   Registration Status   Final Effective Date
+PT_400138_Viridian Energy Limited                          TS_400215   DSU_402040            VEL DSU                                                                 Demand Side Unit         No             Registered                           26/09/2017
+PT_400021_SSE Airtricity Limited                           TS_400021   GU_400020             Kingsmountain Generator Unit                                            Generator Unit           Yes            Registered                           01/11/2007
+PT_400021_SSE Airtricity Limited                           TS_400021   GU_400021             Dunneil Windfarm (Kingsmountain Phase 2)                                Generator Unit           Yes            Registered                           02/11/2007
+PT_400021_SSE Airtricity Limited                           TS_400021   GU_400021             Dunneil Windfarm (Kingsmountain Phase 2)                                Generator Unit           Yes            Registered                           02/11/2007
+PT_500089_Gaelectric Green Energy Limited                  TS_500068   GU_501360             Monnaboy Windfarm                                                       Generator Unit           Yes            Registered                           10/12/2015
+PT_500021_SSE Airtricity Energy Supply NI Ltd              TS_500082   GU_501500             Tievenameenta Wind Farm                                                 Generator Unit           Yes            Registered                           17/11/2016
+PT_500089_Gaelectric Green Energy Limited                  TS_500068   GU_511360             Monnaboy Windfarm Netting Generator Unit                                Netting Generator Unit                  Registered                           10/12/2015

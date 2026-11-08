@@ -1,0 +1,16 @@
+2025/2026 SINGLE ELECTRICITY MARKET COMBINED LOSS ADJUSTMENT FACTORS - IE BASED MARKET PARTICIPANTS
+
+
+Market Participant                         Unit IDTSO
+                                                   Unit IDSEMO   Transmission Station   kV       OCTOBER      OCTOBER        OCTOBER       OCTOBER       OCTOBER     NOVEMBER      NOVEMBER      NOVEMBE
+                                                                                                  CLAF_1       CLAF_2         CLAF_3        CLAF_4        CLAF_1        CLAF_1        CLAF_2        CLAF
+                                                                                              from 00:00:00 from 07:00:00 from 08:00:00 from 22:00:00 from 23:00:00 from 00:00:00 from 07:00:00 from 08:
+                                                                                                to 06:59:59 to 07:59:59     to 21:59:59   to 22:59:59   to 23:59:59   to 06:59:59   to 07:59:59   to 21:
+                                                                                               Oct_CLAF_1 Oct_CLAF_2 Oct_CLAF_3 Oct_CLAF_4 Oct_CLAF_1 Nov_CLAF_1                   Nov_CLAF_2    Nov_CLA
+Ardnacrusha 1 Generator Unit               AA1    GU_400200      ARDNACRUSHA            110        0.982        0.981          0.981         0.982         0.982         0.979         0.981         0.9
+Aghada 2 Generator Unit                    AD2    GU_400850      LONGPOINT              220        0.963        0.959          0.959         0.963         0.963         0.955         0.959         0.9
+Cloncreen Windfarm                      OE1    GU_405140      KILCUMBER              110        0.971        0.974          0.974         0.971         0.971         0.971         0.975         0.975
+Cloncreen BESS                          OE2    GU_407320      KILCUMBER              110        0.971        0.974          0.974         0.971         0.971         0.971         0.975         0.975
+Oweninney Windfarm 1                    OY1    GU_403760      SRAHNAKILLY            110        0.953        0.969          0.969         0.953         0.953         0.957         0.970         0.970
+Yellow River Windfarm   YW1    GU_407510      DERRYIRON              110        0.998        0.995          0.995         0.998         0.998         0.999         0.995         0.995         0.999
+Cloncreen Windfarm                      OE1    GU_405140           0.972         0.974         0.974         0.972         0.972         0.974         0.974         0.974         0.974         0.974

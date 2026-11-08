@@ -1,0 +1,9 @@
+# Hand-made fixes to the automatic matching in locations.py, one row per unit.
+#
+# osm_name: the OpenStreetMap wind farm to place this unit at, exactly as OpenStreetMap
+#           names it. Leave it empty to say the automatic match is wrong (the unit is
+#           then left off the map).
+# note:     why, and how sure.
+unit,semo_name,osm_name,note
+GU_401990,Seecon Windfarm,Galway Wind Park,Seecon and Uggool are the two phases of Galway Wind Park (SSE/Coillte). Check
+GU_401960,Uggool Windfarm,Galway Wind Park,Seecon and Uggool are the two phases of Galway Wind Park (SSE/Coillte). Check
