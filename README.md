@@ -197,6 +197,24 @@ scripts/install_daily_update.sh
 
 If the Mac is asleep at 14:00 the job runs when it wakes. If it is off for more than a week, catch up by hand with `python -m isem_data --start <first missed day>`.
 
+### When something fails
+
+- **A slow or unavailable site:** every request is tried up to four times, with a longer pause each time (`isem_data/web.py`).
+- **A dataset that still fails:** the other datasets download anyway. The run then ends with `FAILED` in the log, a notification on the Mac and a non-zero exit code.
+- **How stale is each dataset?** `data/status.json` records when each one last downloaded successfully, and its last error if any.
+- **An interrupted save:** files are written beside the real one and swapped in, so a crash or full disk leaves the old file intact.
+
+### Backing up the archive
+
+SEMO deletes most of its reports after 2 to 3 months, so `data/` can't be downloaded again. Keep a second copy somewhere that isn't this disk: an external drive, or a folder a cloud service syncs.
+
+```bash
+echo "/Volumes/MyDrive/isem-data-backup" > .backup_dir   # once: where the copy goes
+scripts/backup_data.sh                                   # run it now
+```
+
+The daily update runs the backup after each download. It keeps `latest/` (a copy of `data/`; only changed files are copied) and `weekly/` (the main datasets once a week, for 8 weeks). Until a folder is set, each run ends with `NOT BACKED UP` in the log and a notification.
+
 ## How it works
 
 ```

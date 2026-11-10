@@ -36,7 +36,8 @@ import time
 from datetime import date, timedelta
 
 import pandas as pd
-import requests
+
+from . import web
 
 LIST_URL = "https://reports.sem-o.com/api/v1/documents/static-reports"
 FILE_URL = "https://reports.sem-o.com/documents/"
@@ -176,8 +177,7 @@ def list_files(files: str = DAY_AHEAD_FILES) -> dict[date, str]:
             "page_size": 100,
             "page": page,
         }
-        response = requests.get(LIST_URL, params=params, timeout=60)
-        response.raise_for_status()
+        response = web.get(LIST_URL, params=params, timeout=60)
         answer = response.json()
         for item in answer["items"]:
             day = date.fromisoformat(item["Date"][:10])
@@ -189,8 +189,7 @@ def list_files(files: str = DAY_AHEAD_FILES) -> dict[date, str]:
 
 def download(name: str) -> str:
     """Download one results file and return its text."""
-    response = requests.get(FILE_URL + name, timeout=120)
-    response.raise_for_status()
+    response = web.get(FILE_URL + name, timeout=120)
     return response.text
 
 

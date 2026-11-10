@@ -5,7 +5,7 @@ from datetime import date
 import pandas as pd
 import pytest
 
-from isem_data import eirgrid
+from isem_data import eirgrid, web
 
 
 def row(time, field="WIND_ACTUAL", value=100):
@@ -80,6 +80,8 @@ class FakeResponse:
     def __init__(self, rows):
         self.rows = rows
 
+    status_code = 200
+
     def raise_for_status(self):
         pass
 
@@ -89,7 +91,7 @@ class FakeResponse:
 
 def test_empty_answers_are_retried(monkeypatch):
     answers = [FakeResponse([]), FakeResponse([row("01-Nov-2026 00:00:00")])]
-    monkeypatch.setattr(eirgrid.requests, "get", lambda url, params, timeout: answers.pop(0))
+    monkeypatch.setattr(web.requests, "get", lambda url, params, timeout: answers.pop(0))
     monkeypatch.setattr(eirgrid.time, "sleep", lambda seconds: None)
 
     rows = eirgrid.fetch_rows("wind", date(2026, 11, 1), date(2026, 11, 1))
@@ -104,7 +106,7 @@ def test_gives_up_after_three_empty_answers(monkeypatch):
         calls.append(1)
         return FakeResponse([])
 
-    monkeypatch.setattr(eirgrid.requests, "get", always_empty)
+    monkeypatch.setattr(web.requests, "get", always_empty)
     monkeypatch.setattr(eirgrid.time, "sleep", lambda seconds: None)
 
     assert eirgrid.fetch_rows("wind", date(2026, 11, 1), date(2026, 11, 1)) == []
