@@ -316,3 +316,105 @@ def test_farm_page_adds_up_its_units_and_keeps_recent_half_hours():
     assert recent["output_mw"][i] == 10.0
     assert recent["reason"][i : i + 3] == "C?U"
     assert set(recent["reason"][:i]) == {"?"}
+
+
+def test_a_unit_dark_at_night_or_named_solar_counts_as_solar():
+    rows = []
+    for hour, wind_mw, sun_mw in [(0, 8.0, 0.0), (2, 9.0, 0.0), (11, 7.0, 5.0), (12, 6.0, 6.0)]:
+        time = f"2026-11-10 {hour:02d}:00"
+        for unit, mw in [("GU_WIND", wind_mw), ("GU_SUN", sun_mw), ("GU_NAMED", wind_mw)]:
+            rows.append({"timestamp_utc": time, "unit": unit, "availability_mw": mw})
+    farms = make_farms(rows)
+    names = pd.DataFrame({"unit": ["GU_NAMED"], "semo_name": ["Named Solar Park"]})
+    assert tracker.solar_units(farms) == {"GU_SUN"}
+    assert tracker.solar_units(farms, names) == {"GU_SUN", "GU_NAMED"}
+
+
+def make_wind(rows):
+    """EirGrid wind readings: (time, region, MW)."""
+    return pd.DataFrame(
+        [
+            {"timestamp_utc": half_hour(t), "region": r, "series": "wind_actual_mw", "value": mw}
+            for t, r, mw in rows
+        ]
+    )
+
+
+def test_generation_uses_only_the_half_hours_and_days_the_farms_cover():
+    farms = local(
+        make_farms(
+            [
+                {"timestamp_utc": "2026-11-10 12:00", "unit": "GU_A", "region": "ROI",
+                 "reason": "none", "produced_mwh": 1.0, "lost_mwh": 0.0},
+                {"timestamp_utc": "2026-11-12 12:00", "unit": "GU_A", "region": "ROI",
+                 "reason": "none", "produced_mwh": 1.0, "lost_mwh": 0.0},
+            ]
+        )
+    )  # fmt: skip
+    wind = make_wind(
+        [
+            ("2026-11-10 11:45", "ROI", 400.0),  # before the farm data starts
+            ("2026-11-10 12:15", "ROI", 400.0),  # counted: 400 MW x 15 min = 100 MWh
+            ("2026-11-11 12:00", "ROI", 400.0),  # a day the farm data doesn't have
+            ("2026-11-12 12:15", "ROI", 800.0),  # counted: 200 MWh
+            ("2026-11-12 12:30", "ROI", 800.0),  # after the farm data ends
+        ]
+    )
+    table = tracker.wind_generation(wind, farms).set_index("day")
+    assert table["generation_mwh"].to_dict() == {"2026-11-10": 100.0, "2026-11-12": 200.0}
+
+
+def test_percentages_use_all_wind_generation_when_given():
+    generation = tracker.wind_generation(
+        make_wind(
+            [
+                ("2026-11-10 12:00", "ALL", 400.0),  # 100 MWh on the whole island...
+                ("2026-11-10 12:00", "ROI", 200.0),  # ...50 in Ireland...
+            ]
+        ),
+        local(),
+    )
+    table = tracker.daily(local(), generation).set_index(["day", "region"])
+    island = table.loc[("2026-11-10", "ALL")]
+    assert island["produced_mwh"] == 100.0
+    assert island["units_produced_mwh"] == 18.0  # what the units themselves made
+    assert island["lost_mwh"] == 8.0
+    assert island["dispatch_down_pct"] == pytest.approx(100 * 8 / 108)
+    assert table.loc[("2026-11-10", "ROI"), "produced_mwh"] == 50.0
+    # No EirGrid reading for this region: falls back to the units' own output.
+    assert table.loc[("2026-11-10", "NI"), "produced_mwh"] == 10.0
+
+
+def test_solar_farms_stay_out_of_the_island_figures_but_keep_a_farm_page(tmp_path):
+    day, night = half_hour("2026-11-10 12:00"), half_hour("2026-11-10 23:00")
+    times = [day, night]
+    availability = pd.DataFrame(
+        {"timestamp_utc": times * 2, "unit": ["GU_W", "GU_W", "GU_S", "GU_S"],
+         "availability_mw": [20.0, 20.0, 20.0, 0.0]}
+    )  # fmt: skip
+    metered = pd.DataFrame(
+        {"timestamp_utc": times * 2, "unit": ["GU_W", "GU_W", "GU_S", "GU_S"],
+         "metered_mwh": [5.0, 10.0, 5.0, 0.0], "region": ["ROI"] * 4}
+    )  # fmt: skip
+    files = tracker.build(
+        availability=availability,
+        metered=metered,
+        instructions=pd.DataFrame(
+            {
+                "timestamp_utc": [half_hour("2026-11-09 23:00")] * 2,
+                "unit": ["GU_W", "GU_S"],
+                "instruction_code": ["WIND", "WIND"],
+                "combination_code": ["CURL", "CURL"],
+            }
+        ),
+        units=pd.DataFrame(
+            {"unit": ["GU_W", "GU_S"], "fuel_type": ["WIND"] * 2, "company": ["W", "S"]}
+        ),
+        prices=make_prices(),
+    )
+    island = files["monthly.csv"].set_index("region").loc["ALL"]
+    assert island["produced_mwh"] == 15.0  # GU_W only
+    assert files["meta.json"]["solar_units"] == 1
+    farms = files["farms.csv"].set_index("unit")
+    assert farms.loc["GU_S", "technology"] == "solar"
+    assert "farms/gu-s.json" in files
