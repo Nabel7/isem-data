@@ -12,4 +12,4 @@ data/
 logs/
 
 # Where scripts/backup_data.sh copies data/ to (one path; yours only)
-.backup_dir
+.backup_to

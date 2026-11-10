@@ -206,14 +206,32 @@ If the Mac is asleep at 14:00 the job runs when it wakes. If it is off for more 
 
 ### Backing up the archive
 
-SEMO deletes most of its reports after 2 to 3 months, so `data/` can't be downloaded again. Keep a second copy somewhere that isn't this disk: an external drive, or a folder a cloud service syncs.
+SEMO deletes most of its reports after 2 to 3 months, so `data/` can't be downloaded again. `scripts/backup_data.sh` keeps a second copy somewhere that isn't this disk, and the daily update runs it after each download. Say where the copy goes, once:
 
 ```bash
-echo "/Volumes/MyDrive/isem-data-backup" > .backup_dir   # once: where the copy goes
-scripts/backup_data.sh                                   # run it now
+echo "github:YourName/isem-data-archive" > .backup_to   # a private GitHub repository
+# or
+echo "/Volumes/MyDrive/isem-backup" > .backup_to        # a folder: an external or synced drive
 ```
 
-The daily update runs the backup after each download. It keeps `latest/` (a copy of `data/`; only changed files are copied) and `weekly/` (the main datasets once a week, for 8 weeks). Until a folder is set, each run ends with `NOT BACKED UP` in the log and a notification.
+For GitHub, create a private repository first (`gh repo create YourName/isem-data-archive --private --add-readme`); `gh` must be logged in. Files are attached to releases, which keeps them out of the repository's history:
+
+| Release | What it holds |
+|---|---|
+| `latest` | every main dataset as it is now, replaced on each run |
+| `forecasts-2026-11` (one per month) | the per-farm wind forecasts, one file per day; only new or changed days are sent |
+| `weekly-2026-W46` (8 newest kept) | the main datasets once a week, in case a bad file replaces a good one in `latest` |
+
+Each run ends by checking every file on GitHub against the local one. Until a place is set, each daily run ends with `NOT BACKED UP` in the log and a notification.
+
+To restore onto a new machine:
+
+```bash
+gh release download latest -R YourName/isem-data-archive -D data
+for month in 2026-08 2026-09 2026-10 2026-11; do   # every forecasts-* release
+  gh release download forecasts-$month -R YourName/isem-data-archive -D data/wind_unit_forecasts
+done
+```
 
 ## How it works
 
