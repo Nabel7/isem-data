@@ -38,7 +38,7 @@ def save(df: pd.DataFrame, dataset: str, data_dir: Path = DATA_DIR, key: list[st
         df = pd.concat([existing, df], ignore_index=True)
 
     df = df.drop_duplicates(subset=key, keep="last").sort_values(key).reset_index(drop=True)
-    data_dir.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True)  # a dataset can be a file in a subfolder
     df.to_parquet(path, index=False)
     return path
 

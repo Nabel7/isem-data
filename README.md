@@ -17,6 +17,7 @@ Download and store data from the Irish electricity market (I-SEM) in one tidy fo
 | `availability` | MW each unit could have produced | SEMO report BM-101 | 30 min |
 | `metered` | MWh each unit actually produced in each half-hour | SEMO report BM-086 | 30 min |
 | `units` | each unit's company, type, region and fuel (e.g. `WIND`) | SEMO report BM-091 | latest list |
+| `wind_unit_forecasts` | EirGrid's wind forecast for each unit, **every version as published** (see below) | SEMO report BM-012 | 15 min, ~4 versions a day |
 
 EirGrid values are for the whole island (Ireland and Northern Ireland), except `wind_regions`. Day-ahead prices and volumes are per bidding zone, `ROI` and `NI`.
 
@@ -24,6 +25,18 @@ SEMO only keeps about a year of day-ahead files online, so back-fill early:
 
 ```bash
 python -m isem_data --datasets prices orders --start 2025-11-07   # about 8 minutes each for a year
+```
+
+SEMO posts each delivery day's day-ahead results file at about 01:00 the *following* day, so yesterday is the newest day the daily run can get. SEMO's aggregated bid and ask curves for tomorrow (`BidAskCurves_SEM-DA`) do appear around 13:40 on the day of the auction; they are not downloaded yet.
+
+### Per-farm wind forecasts, as published
+
+`wind_unit_forecasts` saves SEMO's *Four Day Rolling Wind Power Unit Forecast* (BM-012): EirGrid's forecast for every wind and solar unit, every 15 minutes, up to about four days ahead. A new version comes out about four times a day, and SEMO keeps only about 90 days online, so the daily run saves every version, tagged with `published_utc`. That makes fair forecast scoring possible later: you can ask what the forecast said *before* the event.
+
+Each version is a ~35 MB file, so versions already saved are never downloaded again. They are kept as one Parquet file per publication day in `data/wind_unit_forecasts/` (about 1.5 MB a day); `forecasts.load()` reads them all. To collect everything still online:
+
+```bash
+python -m isem_data --datasets wind_unit_forecasts --start 2026-08-11   # ~360 files, about 20 minutes
 ```
 
 ### Company orders

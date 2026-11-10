@@ -1,0 +1,7 @@
+<?xml version = '1.0'?>
+<OutboundData xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"  xsi:noNamespaceSchemaLocation="mi-outbound-reports-isem.xsd" DatasetName="PUB_4DayRollWindUnitFcst" DatasetType="ON_DEMAND" Date="2026-11-08" DateType="TRADE" PublishTime="2026-11-08T06:15:01">
+  <PUB_4DayRollWindUnitFcst ROW="1" DeliveryDate="2026-11-07" TradeDate="2026-11-08" Jurisdiction="NI" ParticipantName="PT_500021" ResourceName="GU_500010" StartTime="2026-11-07T23:00:00" EndTime="2026-11-07T23:15:00" ForecastMW="0.544"/>
+  <PUB_4DayRollWindUnitFcst ROW="2" DeliveryDate="2026-11-07" TradeDate="2026-11-08" Jurisdiction="NI" ParticipantName="PT_500021" ResourceName="GU_500010" StartTime="2026-11-07T23:15:00" EndTime="2026-11-07T23:30:00" ForecastMW="0.538"/>
+  <PUB_4DayRollWindUnitFcst ROW="31201" DeliveryDate="2026-11-07" TradeDate="2026-11-08" Jurisdiction="ROI" ParticipantName="PT_400021" ResourceName="GU_400021" StartTime="2026-11-07T23:00:00" EndTime="2026-11-07T23:15:00" ForecastMW="0.001"/>
+  <PUB_4DayRollWindUnitFcst ROW="31202" DeliveryDate="2026-11-07" TradeDate="2026-11-08" Jurisdiction="ROI" ParticipantName="PT_400021" ResourceName="GU_400021" StartTime="2026-11-07T23:15:00" EndTime="2026-11-07T23:30:00" ForecastMW="0.001"/>
+</OutboundData>
