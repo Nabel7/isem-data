@@ -1,5 +1,6 @@
 #!/bin/zsh
-# Download the last 7 days of every dataset into data/.
+# Download the last 7 days of every dataset into data/, including any new versions of
+# SEMO's per-farm wind forecasts.
 #
 # launchd runs this once a day (see install_daily_update.sh), and it is safe to run
 # by hand at any time: saving replaces rows that are already there, so the overlap
