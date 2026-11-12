@@ -21,9 +21,14 @@ A switch's position in a half-hour is its last change before the middle of the
 half-hour. When both are on, the lost energy counts as a constraint (the local
 limit is the one that binds).
 
-This matches EirGrid's official monthly figures to within about 2 percentage
-points (September 2026: 24.3% all-island against EirGrid's 22.7%); see
-notebooks/02_dispatch_down_checks.ipynb.
+A switch only turns off when the data shows an "off" instruction, so a day with no
+instructions at all (SEMO published nothing for it) would leave switches stuck on.
+Every switch is therefore turned off at the start of such a day: after it, a farm
+counts as held down only once a new instruction says so. See missing_days.
+
+For the whole island, with all wind generation as the base (see tracker.py), this is
+within about 1 percentage point of EirGrid's official figure (7-30 September 2026:
+22.8% against about 22%). The split between constraint and curtailment is less sure.
 
     from isem_data import dispatch_down, storage
 
@@ -59,11 +64,25 @@ COLUMNS = [
 ]
 
 HALF_HOUR = pd.Timedelta(minutes=30)
+LOCAL_TIME = "Europe/Dublin"
 
 
 def wind_units(units: pd.DataFrame) -> set[str]:
     """The units SEMO lists with fuel type WIND (solar farms appear to be listed as WIND too)."""
     return set(units.loc[units["fuel_type"] == "WIND", "unit"])
+
+
+def missing_days(instructions: pd.DataFrame) -> list[pd.Timestamp]:
+    """The Irish days, between the first and last instruction, that have no instructions
+    of any kind for any unit: days SEMO published no file for. Returned as the UTC time
+    each day starts. (A real day always has hundreds of instructions across all units.)"""
+    local = instructions["timestamp_utc"].dt.tz_convert(LOCAL_TIME).dt.normalize()
+    days = pd.DatetimeIndex(local.unique()).sort_values()
+    if len(days) < 2:
+        return []
+    every_day = pd.date_range(days[0].tz_localize(None), days[-1].tz_localize(None), freq="D")
+    every_day = every_day.tz_localize(LOCAL_TIME)
+    return [day.tz_convert("UTC") for day in every_day.difference(days)]
 
 
 def farm_half_hours(
@@ -94,10 +113,23 @@ def farm_half_hours(
     farms["middle"] = farms["timestamp_utc"] + HALF_HOUR / 2
     farms = farms.sort_values("middle")
     wind_instructions = instructions[instructions["instruction_code"] == "WIND"]
+    # On a day with no instructions at all, every switch is turned off (see the top).
+    gaps = missing_days(instructions)
+    units_seen = farms["unit"].unique()
     for switch, (on, off) in SWITCHES.items():
         changes = wind_instructions[wind_instructions["combination_code"].isin([on, off])]
         changes = changes.assign(**{switch: changes["combination_code"] == on})
         changes = changes.rename(columns={"timestamp_utc": "changed_utc"})
+        changes = changes[["changed_utc", "unit", switch]]
+        if gaps:
+            resets = pd.DataFrame(
+                {
+                    "changed_utc": np.repeat(pd.DatetimeIndex(gaps), len(units_seen)),
+                    "unit": np.tile(units_seen, len(gaps)),
+                    switch: False,
+                }
+            ).astype(changes.dtypes.to_dict())
+            changes = pd.concat([changes, resets], ignore_index=True)
         farms = pd.merge_asof(
             farms,
             changes[["changed_utc", "unit", switch]].sort_values("changed_utc"),

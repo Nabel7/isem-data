@@ -196,3 +196,65 @@ def test_totals_of_nothing_is_not_a_division_error():
     totals = dispatch_down.totals(run(start=at("03:00")))
     assert totals["produced_gwh"] == 0.0
     assert pd.isna(totals["dispatch_down_pct"])
+
+
+def instruction(time, unit, combination_code, instruction_code="WIND"):
+    return {
+        "timestamp_utc": pd.Timestamp(time, tz="UTC"),
+        "unit": unit,
+        "instruction_code": instruction_code,
+        "combination_code": combination_code,
+    }
+
+
+def held_down_on_the_12th(instructions):
+    """GU_1 at midday on 12 Nov, given these instructions (it was curtailed on the 10th)."""
+    midday = pd.Timestamp("2026-11-12 12:00", tz="UTC")
+    farms = dispatch_down.farm_half_hours(
+        pd.DataFrame({"timestamp_utc": [midday], "unit": ["GU_1"], "availability_mw": [20.0]}),
+        pd.DataFrame(
+            {"timestamp_utc": [midday], "unit": ["GU_1"], "metered_mwh": [5.0], "region": ["ROI"]}
+        ),
+        pd.DataFrame(instructions),
+        make_units(),
+    )
+    return farms.iloc[0]
+
+
+def test_a_day_with_no_instructions_turns_every_switch_off():
+    # Curtailed on the 10th. SEMO published nothing for the 11th, so the release was never
+    # seen. On the 12th the farm must not still count as curtailed.
+    instructions = [
+        instruction("2026-11-10 20:00", "GU_1", "CURL"),
+        instruction("2026-11-12 09:00", "GU_GAS", "", "SYNC"),  # the 12th does have a file
+    ]
+    assert dispatch_down.missing_days(pd.DataFrame(instructions)) == [
+        pd.Timestamp("2026-11-11 00:00", tz="UTC")
+    ]
+    row = held_down_on_the_12th(instructions)
+    assert not row["curtailed"]
+    assert row["lost_mwh"] == 0.0
+
+
+def test_a_switch_stays_on_across_days_that_do_have_instructions():
+    # The same, but the 11th has a file (an instruction for another unit): no gap, so the
+    # curtailment still stands on the 12th.
+    instructions = [
+        instruction("2026-11-10 20:00", "GU_1", "CURL"),
+        instruction("2026-11-11 08:00", "GU_GAS", "", "SYNC"),
+        instruction("2026-11-12 09:00", "GU_GAS", "", "SYNC"),
+    ]
+    assert dispatch_down.missing_days(pd.DataFrame(instructions)) == []
+    row = held_down_on_the_12th(instructions)
+    assert row["curtailed"]
+    assert row["lost_mwh"] == 5.0
+
+
+def test_an_instruction_after_the_gap_turns_the_switch_back_on():
+    instructions = [
+        instruction("2026-11-10 20:00", "GU_1", "CURL"),
+        instruction("2026-11-12 09:00", "GU_1", "LOCL"),
+    ]
+    row = held_down_on_the_12th(instructions)
+    assert row["constrained"] and not row["curtailed"]
+    assert row["reason"] == "constraint"

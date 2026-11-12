@@ -105,7 +105,13 @@ def download(dataset: str, start: date, end: date, data_dir: Path) -> str:
         key = semo.ORDER_KEY  # orders are identified differently from the tidy datasets
     elif dataset in balancing.REPORTS:
         report = balancing.REPORTS[dataset]
-        df = semo.fetch(start, end, parse=balancing.parser(dataset), files=report["files"])
+        df = semo.fetch(
+            start,
+            end,
+            parse=balancing.parser(dataset),
+            files=report["files"],
+            lag_days=report.get("lag_days", 0),
+        )
         key = report["key"]
     else:
         df = eirgrid.fetch(dataset, start, end)

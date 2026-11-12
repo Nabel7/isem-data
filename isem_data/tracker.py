@@ -56,7 +56,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from . import dispatch_down, locations, storage
+from . import balancing, dispatch_down, locations, storage
 
 LOCAL_TIME = "Europe/Dublin"
 
@@ -469,10 +469,18 @@ def main() -> None:
         print(
             "      units' output. Download with: python -m isem_data --datasets wind wind_regions"
         )
+    later = None
+    if (data_dir / "dispatch_instructions_d4.parquet").exists():
+        later = storage.load("dispatch_instructions_d4", data_dir)
+    else:
+        print("note: no dispatch_instructions_d4 data; using the next-day instructions only.")
+    instructions = balancing.latest_instructions(
+        storage.load("dispatch_instructions", data_dir), later
+    )
     files = build(
         storage.load("availability", data_dir),
         storage.load("metered", data_dir),
-        storage.load("dispatch_instructions", data_dir),
+        instructions,
         storage.load("units", data_dir),
         storage.load("prices", data_dir),
         names,
