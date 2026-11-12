@@ -13,7 +13,7 @@ The fixtures are excerpts of real files, keeping the header line and the closing
   a gas unit, GU_400930. Units are repeated within a file, as in the real one.
 """
 
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -141,3 +141,59 @@ def test_unit_list_keeps_one_row_per_unit_with_company_and_fuel(tmp_path):
     assert units.loc["GU_407510", "fuel_type"] == "WIND"
     assert units.loc["GU_407510", "company"] == "SSE Airtricity Limited"
     assert units.loc["IEU_ROIEWIC", "fuel_type"] == ""  # interconnectors have no fuel
+
+
+def instructions_at(*times):
+    return pd.DataFrame(
+        {
+            "timestamp_utc": [pd.Timestamp(t, tz="UTC") for t in times],
+            "unit": ["GU_1"] * len(times),
+        }
+    )
+
+
+def test_the_later_version_of_the_instructions_wins_for_the_days_it_covers():
+    next_day = instructions_at("2026-10-26 10:00", "2026-10-28 10:00", "2026-10-29 10:00")
+    later = instructions_at("2026-10-26 10:00", "2026-10-26 11:00", "2026-10-27 09:00")
+
+    both = balancing.latest_instructions(next_day, later)
+
+    assert both["timestamp_utc"].dt.strftime("%m-%d %H").tolist() == [
+        "10-26 10",  # the 26th: the later version's two rows, not the next-day one's
+        "10-26 11",
+        "10-27 09",  # the 27th: only the later version has it
+        "10-28 10",  # the 28th and 29th: only the next-day version has them
+        "10-29 10",
+    ]
+
+
+def test_days_are_irish_days_when_choosing_between_versions():
+    # 23:30 UTC on 14 July is already 15 July in Ireland, which the later version covers.
+    next_day = instructions_at("2026-07-14 23:30", "2026-07-14 12:00")
+    later = instructions_at("2026-07-15 10:00")
+    both = balancing.latest_instructions(next_day, later)
+    assert both["timestamp_utc"].dt.strftime("%m-%d %H:%M").tolist() == [
+        "07-14 12:00",
+        "07-15 10:00",
+    ]
+
+
+def test_without_a_later_version_the_next_day_one_is_used_as_is():
+    next_day = instructions_at("2026-10-26 10:00")
+    assert balancing.latest_instructions(next_day, None) is next_day
+    assert balancing.latest_instructions(next_day, next_day.iloc[:0]) is next_day
+
+
+def test_the_four_day_version_reads_the_same_columns_from_its_own_files():
+    report = balancing.REPORTS["dispatch_instructions_d4"]
+    assert report["files"] == "PUB_DailyDispatchInstrD4"
+    assert report["columns"] == balancing.REPORTS["dispatch_instructions"]["columns"]
+    assert "dispatch_instructions_d4" in balancing.DATASETS
+
+
+def test_days_too_recent_for_a_report_are_not_called_missing(monkeypatch, capsys):
+    today = date.today()
+    monkeypatch.setattr(semo, "list_files", lambda files: {})
+    semo.fetch(today - timedelta(days=6), today - timedelta(days=1), lag_days=4)
+    warned = capsys.readouterr().out.count("warning")
+    assert warned == 2  # only the days more than four days back

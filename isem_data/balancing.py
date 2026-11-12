@@ -12,6 +12,7 @@ the power) or a curtailment (too much wind for the whole island).
 | Dataset                 | SEMO report                              | One row per           |
 |-------------------------|------------------------------------------|-----------------------|
 | `dispatch_instructions` | BM-037 Daily Dispatch Instructions (D+1) | instruction to a unit |
+| `dispatch_instructions_d4` | the same, re-issued four days later (D+4) | instruction to a unit |
 | `availability`          | BM-101 Average Outturn Availability      | unit and half-hour    |
 | `metered`               | BM-086 Daily Meter Data                  | unit and half-hour    |
 | `units`                 | BM-091 Unit Data                         | unit                  |
@@ -40,6 +41,11 @@ Wind farm instructions have InstructionCode "WIND". The combination code says wh
 Units are anonymised codes like GU_407510, not wind farm names. The unit data
 report (BM-091) gives each unit's company and fuel type; solar farms appear to be
 listed as WIND (unconfirmed).
+
+The instructions come in two versions. D+1 is out the next day; D+4, four days later,
+adds instructions the first version missed, and sometimes exists for a day D+1 never
+covered (27 Oct 2026), or the other way round (24-25 Oct 2026). latest_instructions
+puts the two together.
 
 SEMO only keeps these files online for about 2-3 months (much less than the
 day-ahead files), so the daily download is the only way to build up a history.
@@ -117,7 +123,36 @@ REPORTS = {
     },
 }
 
+# The four-day-later version of the instructions: same columns, different files.
+REPORTS["dispatch_instructions_d4"] = {
+    **REPORTS["dispatch_instructions"],
+    "files": "PUB_DailyDispatchInstrD4",
+    "lag_days": 4,  # SEMO publishes it four days after the day it covers
+}
+
 DATASETS = list(REPORTS)
+
+LOCAL_TIME = "Europe/Dublin"
+
+
+def latest_instructions(next_day: pd.DataFrame, later: pd.DataFrame | None) -> pd.DataFrame:
+    """One table of instructions from the two versions SEMO publishes.
+
+    For each Irish day the later (D+4) version covers, use it: it is the more complete.
+    For every other day (the newest four, and any day D+4 never appeared for), use the
+    next-day (D+1) version. `later` can be None or empty, if it hasn't been downloaded.
+    """
+    if later is None or later.empty:
+        return next_day
+
+    def local_day(df):
+        return df["timestamp_utc"].dt.tz_convert(LOCAL_TIME).dt.strftime("%Y-%m-%d")
+
+    covered = set(local_day(later))
+    only_next_day = next_day[~local_day(next_day).isin(covered)]
+    both = pd.concat([only_next_day, later], ignore_index=True)
+    return both.sort_values(["timestamp_utc", "unit"]).reset_index(drop=True)
+
 
 TIMES = ["timestamp_utc", "issued_utc"]
 

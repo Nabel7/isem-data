@@ -194,7 +194,11 @@ def download(name: str) -> str:
 
 
 def fetch(
-    start: date, end: date, parse=parse_market_result, files: str = DAY_AHEAD_FILES
+    start: date,
+    end: date,
+    parse=parse_market_result,
+    files: str = DAY_AHEAD_FILES,
+    lag_days: int = 0,
 ) -> pd.DataFrame:
     """Download every day's file from start to end and read it.
 
@@ -202,6 +206,8 @@ def fetch(
     and volumes (the default), or parse_orders for the company orders.
     `files` picks which of SEMO's reports to download (see list_files); the
     balancing module uses it for its per-unit reports.
+    `lag_days` is how long SEMO takes to publish this report after the day it covers:
+    newer days are skipped quietly instead of being reported as missing.
     """
     if start > end:
         raise ValueError(f"start must be on or before end (got start={start}, end={end})")
@@ -213,7 +219,7 @@ def fetch(
         if day in names:
             frames.append(parse(download(names[day])))
             time.sleep(1)  # be polite: each file is about 1-4 MB
-        else:
+        elif day < date.today() - timedelta(days=lag_days):
             print(f"warning: SEMO has no {files} file for {day}")
         day += timedelta(days=1)
 

@@ -14,6 +14,7 @@ Download and store data from the Irish electricity market (I-SEM) in one tidy fo
 | `prices` | `dam_price_eur_mwh`, `dam_volume_mw` | SEMO day-ahead market results | 30 min |
 | `orders` | each company's cleared orders (see below) | SEMO day-ahead market results | 30 min |
 | `dispatch_instructions` | every instruction EirGrid gave each unit (see below) | SEMO report BM-037 | per instruction |
+| `dispatch_instructions_d4` | the same instructions as re-issued four days later, which is more complete | SEMO report BM-037 (D+4) | per instruction |
 | `availability` | MW each unit could have produced | SEMO report BM-101 | 30 min |
 | `metered` | MWh each unit actually produced in each half-hour | SEMO report BM-086 | 30 min |
 | `units` | each unit's company, type, region and fuel (e.g. `WIND`) | SEMO report BM-091 | latest list |
@@ -79,6 +80,10 @@ python -m isem_data --datasets dispatch_instructions availability metered units 
 The metered and availability files appear about two days after the trading day. Each is roughly 17,000 rows a day.
 
 ### Calculating dispatch-down
+
+SEMO publishes the instructions twice: the next day (D+1) and again four days later (D+4). The later version adds instructions the first one missed, and each sometimes covers a day the other never does (27 October 2026 exists only in D+4). `balancing.latest_instructions` uses D+4 for every day it covers and D+1 for the rest; the tracker export does this for you.
+
+A farm stays "held down" until an instruction releases it, so a day with no instructions at all would leave it stuck. On such a day every switch is turned off, and a farm counts as held down again only when a new instruction says so (`dispatch_down.missing_days`).
 
 `isem_data/dispatch_down.py` turns the four datasets into one row per wind farm and half-hour, with the energy produced, the energy lost and why:
 
