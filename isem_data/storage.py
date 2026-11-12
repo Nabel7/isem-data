@@ -4,6 +4,9 @@ Parquet is a compressed column format: much smaller and faster than CSV, and it
 keeps the column types (like timezone-aware timestamps) when you read it back.
 """
 
+import json
+import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -39,8 +42,39 @@ def save(df: pd.DataFrame, dataset: str, data_dir: Path = DATA_DIR, key: list[st
 
     df = df.drop_duplicates(subset=key, keep="last").sort_values(key).reset_index(drop=True)
     path.parent.mkdir(parents=True, exist_ok=True)  # a dataset can be a file in a subfolder
-    df.to_parquet(path, index=False)
+    # Write beside the real file, then swap it in. If the write is interrupted (a crash,
+    # a full disk), the old file is untouched instead of being left half-written.
+    unfinished = path.with_name(path.name + ".tmp")
+    df.to_parquet(unfinished, index=False)
+    os.replace(unfinished, path)
     return path
+
+
+STATUS_FILE = "status.json"
+
+
+def read_status(data_dir: Path = DATA_DIR) -> dict:
+    """What happened the last time each dataset was downloaded (see record_status)."""
+    path = data_dir / STATUS_FILE
+    return json.loads(path.read_text()) if path.exists() else {}
+
+
+def record_status(dataset: str, data_dir: Path = DATA_DIR, error: str | None = None, **details):
+    """Note a dataset's latest download in status.json: when it last worked (with any
+    `details`, such as the dates covered), or when and why it last failed. A failure
+    keeps the record of the last success, so the file shows how stale a dataset is."""
+    status = read_status(data_dir)
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    entry = status.get(dataset, {})
+    if error is None:
+        entry = {"last_success_utc": now, **details}
+    else:
+        entry = {**entry, "last_failure_utc": now, "last_error": error}
+    status[dataset] = entry
+    data_dir.mkdir(parents=True, exist_ok=True)
+    unfinished = data_dir / (STATUS_FILE + ".tmp")
+    unfinished.write_text(json.dumps(status, indent=2) + "\n")
+    os.replace(unfinished, data_dir / STATUS_FILE)
 
 
 def load(dataset: str, data_dir: Path = DATA_DIR) -> pd.DataFrame:

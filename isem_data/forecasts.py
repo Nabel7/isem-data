@@ -26,9 +26,8 @@ from datetime import date
 from pathlib import Path
 
 import pandas as pd
-import requests
 
-from . import semo, storage
+from . import semo, storage, web
 
 FILES = "PUB_4DayRollWindUnitFcst"
 DATASET = "wind_unit_forecasts"
@@ -48,8 +47,7 @@ def list_publications(files: str = FILES) -> pd.DataFrame:
             "page_size": 100,
             "page": page,
         }
-        response = requests.get(semo.LIST_URL, params=params, timeout=60)
-        response.raise_for_status()
+        response = web.get(semo.LIST_URL, params=params, timeout=60)
         answer = response.json()
         for item in answer["items"]:
             rows.append(

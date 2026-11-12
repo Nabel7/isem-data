@@ -16,7 +16,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from isem_data import eirgrid, semo, storage
+from isem_data import eirgrid, semo, storage, web
 
 FIXTURE = Path(__file__).parent / "fixtures" / "semo_da_2026-11-02.csv"
 ORDERS_FIXTURE = Path(__file__).parent / "fixtures" / "semo_da_orders_2026-11-02.csv"
@@ -96,6 +96,8 @@ class FakeResponse:
     def __init__(self, answer):
         self.answer = answer
 
+    status_code = 200
+
     def raise_for_status(self):
         pass
 
@@ -117,7 +119,7 @@ def test_list_files_reads_every_page(monkeypatch):
         2: listing_page([("2026-11-03", "file_c.csv")], 2),
     }
     monkeypatch.setattr(
-        semo.requests, "get", lambda url, params, timeout: FakeResponse(pages[params["page"]])
+        web.requests, "get", lambda url, params, timeout: FakeResponse(pages[params["page"]])
     )
 
     assert semo.list_files() == {
@@ -134,7 +136,7 @@ def test_list_files_asks_for_the_requested_report(monkeypatch):
         asked_for.append(params["ResourceName"])
         return FakeResponse(listing_page([], 1))
 
-    monkeypatch.setattr(semo.requests, "get", fake_get)
+    monkeypatch.setattr(web.requests, "get", fake_get)
 
     semo.list_files()
     semo.list_files("PUB_DailyMeterDataD1")
@@ -144,7 +146,7 @@ def test_list_files_asks_for_the_requested_report(monkeypatch):
 def test_list_files_keeps_the_newer_file_when_a_day_has_two(monkeypatch):
     # The list is requested oldest first, so a re-run for the same day comes later.
     page = listing_page([("2026-11-02", "first_run.csv"), ("2026-11-02", "re_run.csv")], 1)
-    monkeypatch.setattr(semo.requests, "get", lambda url, params, timeout: FakeResponse(page))
+    monkeypatch.setattr(web.requests, "get", lambda url, params, timeout: FakeResponse(page))
 
     assert semo.list_files() == {date(2026, 11, 2): "re_run.csv"}
 

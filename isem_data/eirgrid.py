@@ -9,7 +9,8 @@ import time
 from datetime import date, timedelta
 
 import pandas as pd
-import requests
+
+from . import web
 
 API_URL = "https://www.smartgriddashboard.com/api/chart/"
 
@@ -55,8 +56,7 @@ def fetch_rows(
         "areas": areas,
     }
     for _ in range(attempts):
-        response = requests.get(API_URL, params=params, timeout=30)
-        response.raise_for_status()  # stop with an error if the server said no
+        response = web.get(API_URL, params=params, timeout=30)  # raises if the server says no
         rows = response.json()["Rows"]
         if rows:
             return rows
