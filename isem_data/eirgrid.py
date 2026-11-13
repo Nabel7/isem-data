@@ -34,17 +34,20 @@ COLUMNS = ["timestamp_utc", "region", "series", "value"]
 INTERVAL = pd.Timedelta(minutes=15)
 
 
-def fetch_rows(
-    dataset: str, start: date, end: date, region: str = "ALL", attempts: int = 3
-) -> list[dict]:
+# How long to wait before each retry of an empty answer, in seconds. The blanks can
+# last a while (all of 13 Nov 2026's demand request came back empty), so the waits grow.
+RETRY_WAITS = [2, 5, 15, 30, 60]
+
+
+def fetch_rows(dataset: str, start: date, end: date, region: str = "ALL") -> list[dict]:
     """Download the raw rows for one dataset, from `start` to `end` inclusive.
 
     Each row looks like:
     {"EffectiveTime": "01-Nov-2026 00:00:00", "FieldName": "WIND_ACTUAL",
      "Region": "ALL", "Value": 958}
 
-    The API sometimes answers with no rows for a request that works a second
-    later, so an empty answer is retried a few times before giving up.
+    The API sometimes answers with no rows for a request that works later, so an
+    empty answer is retried, waiting longer each time (RETRY_WAITS), before giving up.
     """
     chart_type, areas, _ = DATASETS[dataset]
     params = {
@@ -55,12 +58,12 @@ def fetch_rows(
         "dateTo": end.strftime("%d-%b-%Y"),
         "areas": areas,
     }
-    for _ in range(attempts):
+    for wait in [*RETRY_WAITS, None]:
         response = web.get(API_URL, params=params, timeout=30)  # raises if the server says no
         rows = response.json()["Rows"]
-        if rows:
+        if rows or wait is None:
             return rows
-        time.sleep(2)
+        time.sleep(wait)
     return []
 
 
