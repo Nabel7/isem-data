@@ -6,10 +6,28 @@ carry the power, a *curtailment* when there is too much wind for the whole islan
 
 For each farm and half-hour:
 
-    output (MW)   = 2 * metered energy (metered is MWh per half-hour)
-    gap (MW)      = availability - output
-    lost (MWh)    = gap * 0.5 h, counted only while an instruction is in force
-                    and never below zero
+    output (MW)    = 2 * metered energy (metered is MWh per half-hour)
+    available (MW) = the farm's declared availability, checked against what it
+                     really makes (see below)
+    gap (MW)       = available - output
+    lost (MWh)     = gap * 0.5 h, counted only while an instruction is in force
+                     and never below zero
+
+Checking availability. Some farms keep declaring their full availability while
+they make far less, even with no instruction in force: most likely turbines out of
+service whose availability wasn't lowered. Counting availability minus output would
+then treat the missing turbines as wind turned down. So each farm's output is
+compared with its declared availability over the past 7 days, in the half-hours
+with no instruction in force. If it made under 80% of what it declared, its
+availability is scaled down by that ratio until it recovers. A farm needs at least
+48 such half-hours (a day) in the window to be judged; otherwise its declared
+availability stands.
+
+In October 2026 this took the island's figure from 18.1% to 16.3%, against
+EirGrid's 15.8% on the same days; September went from 22.8% to 21.6% (EirGrid
+21.8%). Scaling every farm by its ratio, not only the ones under 80%, overcorrects
+(19.7% and 14.7%): a farm making 90% of its availability is mostly just the wind
+varying within the half-hour.
 
 Constraint and curtailment are two separate switches, because a farm can be
 under both at once:
@@ -27,8 +45,9 @@ Every switch is therefore turned off at the start of such a day: after it, a far
 counts as held down only once a new instruction says so. See missing_days.
 
 For the whole island, with all wind generation as the base (see tracker.py), this is
-within about 1 percentage point of EirGrid's official figure (7-30 September 2026:
-22.8% against about 22%). The split between constraint and curtailment is less sure.
+within about half a percentage point of EirGrid's official figures for the same days
+in September and October 2026. The split between constraint and curtailment is less
+sure.
 
     from isem_data import dispatch_down, storage
 
@@ -55,6 +74,7 @@ COLUMNS = [
     "unit",
     "region",
     "availability_mw",
+    "available_mw",
     "output_mw",
     "constrained",
     "curtailed",
@@ -65,6 +85,11 @@ COLUMNS = [
 
 HALF_HOUR = pd.Timedelta(minutes=30)
 LOCAL_TIME = "Europe/Dublin"
+
+# Checking declared availability against output (see the top).
+CHECK_WINDOW = "7D"
+CHECK_BELOW = 0.8
+CHECK_MIN_FREE = 48
 
 
 def wind_units(units: pd.DataFrame) -> set[str]:
@@ -83,6 +108,38 @@ def missing_days(instructions: pd.DataFrame) -> list[pd.Timestamp]:
     every_day = pd.date_range(days[0].tz_localize(None), days[-1].tz_localize(None), freq="D")
     every_day = every_day.tz_localize(LOCAL_TIME)
     return [day.tz_convert("UTC") for day in every_day.difference(days)]
+
+
+def availability_factor(farms: pd.DataFrame) -> pd.Series:
+    """For each row of `farms`, what to multiply declared availability by: 1, or the
+    farm's ratio of output to declared availability over the past 7 days when it was
+    under 80%. Only half-hours with no instruction in force count (`reason` "none"), and
+    a farm needs at least 48 of them in the window. Looks back only, so a day's figures
+    don't change when later days arrive.
+
+    `farms` needs timestamp_utc, unit, availability_mw, output_mw and reason."""
+    free = farms["reason"] == "none"
+    parts = pd.DataFrame(
+        {
+            "timestamp_utc": farms["timestamp_utc"],
+            "unit": farms["unit"],
+            "output": farms["output_mw"].where(free, 0.0).clip(lower=0),
+            "declared": farms["availability_mw"].where(free, 0.0).clip(lower=0),
+            "free": free.astype(float),
+        }
+    ).sort_values(["unit", "timestamp_utc"])
+    # The rolling sums come back in the same order as `parts` (by unit, then time),
+    # indexed by unit and time, so they're put back on parts' rows by position.
+    sums = (
+        parts.groupby("unit", sort=True)
+        .rolling(CHECK_WINDOW, on="timestamp_utc")[["output", "declared", "free"]]
+        .sum()
+    )
+    sums.index = parts.index
+    ratio = (sums["output"] / sums["declared"].where(sums["declared"] > 0)).clip(upper=1)
+    judged = (sums["free"] >= CHECK_MIN_FREE) & (ratio < CHECK_BELOW)
+    factor = ratio.where(judged, 1.0).fillna(1.0)
+    return factor.reindex(farms.index)
 
 
 def farm_half_hours(
@@ -143,7 +200,8 @@ def farm_half_hours(
     farms["reason"] = np.select(
         [farms["constrained"], farms["curtailed"]], ["constraint", "curtailment"], "none"
     )
-    gap_mw = (farms["availability_mw"] - farms["output_mw"]).clip(lower=0)
+    farms["available_mw"] = farms["availability_mw"] * availability_factor(farms)
+    gap_mw = (farms["available_mw"] - farms["output_mw"]).clip(lower=0)
     farms["produced_mwh"] = farms["metered_mwh"]
     farms["lost_mwh"] = gap_mw.where(farms["reason"] != "none", 0.0) * 0.5
 

@@ -258,3 +258,72 @@ def test_an_instruction_after_the_gap_turns_the_switch_back_on():
     row = held_down_on_the_12th(instructions)
     assert row["constrained"] and not row["curtailed"]
     assert row["reason"] == "constraint"
+
+
+# ---- Checking declared availability against output ------------------------------------
+
+THREE_DAYS = pd.date_range("2026-11-01 00:00", periods=144, freq="30min", tz="UTC")
+
+
+def held_from_day_three(made_mw, declared_mw=30.0):
+    """One farm declaring `declared_mw` throughout and making `made_mw` while free for two
+    days, then constrained from the start of the third day, still making `made_mw`."""
+    availability = pd.DataFrame(
+        {"timestamp_utc": THREE_DAYS, "unit": "GU_1", "availability_mw": declared_mw}
+    )
+    metered = pd.DataFrame(
+        {"timestamp_utc": THREE_DAYS, "unit": "GU_1", "metered_mwh": made_mw / 2, "region": "ROI"}
+    )
+    instructions = pd.DataFrame(
+        {
+            "timestamp_utc": [pd.Timestamp("2026-11-03 00:05", tz="UTC")],
+            "unit": ["GU_1"],
+            "instruction_code": ["WIND"],
+            "combination_code": ["LOCL"],
+        }
+    )
+    farms = dispatch_down.farm_half_hours(
+        availability, metered, instructions, make_units(), start=THREE_DAYS[0]
+    )
+    return farms[farms["timestamp_utc"] >= pd.Timestamp("2026-11-03", tz="UTC")]
+
+
+def test_a_farm_making_far_less_than_it_declares_has_its_availability_scaled_down():
+    # Free, it made 9 MW of a declared 30 (30%): turbines out, not wind turned down.
+    # Once held down at 9 MW, its availability counts as 30 * 0.3 = 9 MW, so nothing is lost.
+    day_three = held_from_day_three(made_mw=9.0)
+    assert (day_three["reason"] == "constraint").all()
+    assert day_three["available_mw"].round(6).eq(9.0).all()
+    assert day_three["lost_mwh"].abs().max() < 1e-9
+
+
+def test_a_farm_making_most_of_what_it_declares_keeps_its_declared_availability():
+    # 27 of 30 MW (90%) is above the 80% line: declared availability stands.
+    day_three = held_from_day_three(made_mw=27.0)
+    assert day_three["available_mw"].eq(30.0).all()
+    assert day_three["lost_mwh"].round(6).eq(1.5).all()  # (30 - 27) MW for half an hour
+
+
+def test_too_few_free_half_hours_leaves_declared_availability_alone():
+    # The test farm at the top is free for one half-hour only, so it isn't judged,
+    # even though it makes half its declared availability.
+    farms = run()
+    assert farms["available_mw"].eq(farms["availability_mw"]).all()
+
+
+def test_the_check_looks_back_only():
+    farms = pd.DataFrame(
+        {
+            "timestamp_utc": THREE_DAYS,
+            "unit": "GU_1",
+            "availability_mw": 30.0,
+            # Makes 30% for two days, then all of it on the third.
+            "output_mw": [9.0] * 96 + [30.0] * 48,
+            "reason": "none",
+        }
+    )
+    factor = dispatch_down.availability_factor(farms)
+    # Day two is judged on days one and two only, whatever happens on day three.
+    assert factor.iloc[95] == pytest.approx(0.3)
+    # Early on there's too little to judge.
+    assert factor.iloc[10] == 1.0
