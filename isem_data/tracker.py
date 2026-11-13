@@ -257,8 +257,10 @@ def recent_half_hours(farms: pd.DataFrame, since: pd.Timestamp, until: pd.Timest
     times = pd.date_range(since, until, freq="30min")
     if "farm_id" in farms:
         farms = farms.drop(columns="farm_id")
+    # What the lost energy is measured from: the checked availability where it's there.
+    available = "available_mw" if "available_mw" in farms else "availability_mw"
     by_time = farms.groupby("timestamp_utc").agg(
-        available_mw=("availability_mw", "sum"),
+        available_mw=(available, "sum"),
         output_mw=("output_mw", "sum"),
         constrained=("reason", lambda r: (r == "constraint").any()),
         curtailed=("reason", lambda r: (r == "curtailment").any()),
