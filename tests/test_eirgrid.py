@@ -99,7 +99,7 @@ def test_empty_answers_are_retried(monkeypatch):
     assert len(rows) == 1
 
 
-def test_gives_up_after_three_empty_answers(monkeypatch):
+def test_gives_up_after_the_last_wait(monkeypatch):
     calls = []
 
     def always_empty(url, params, timeout):
@@ -109,8 +109,11 @@ def test_gives_up_after_three_empty_answers(monkeypatch):
     monkeypatch.setattr(web.requests, "get", always_empty)
     monkeypatch.setattr(eirgrid.time, "sleep", lambda seconds: None)
 
+    waits = []
+    monkeypatch.setattr(eirgrid.time, "sleep", waits.append)
     assert eirgrid.fetch_rows("wind", date(2026, 11, 1), date(2026, 11, 1)) == []
-    assert len(calls) == 3
+    assert len(calls) == len(eirgrid.RETRY_WAITS) + 1  # the first try, then one per wait
+    assert waits == eirgrid.RETRY_WAITS
 
 
 def test_fetch_rejects_a_reversed_date_range():

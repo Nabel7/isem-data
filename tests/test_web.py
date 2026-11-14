@@ -110,3 +110,20 @@ def test_a_failure_keeps_the_record_of_the_last_success(tmp_path):
     assert entry["result"] == "48 rows"
     assert entry["last_error"] == "Timeout: slow"
     assert {"last_success_utc", "last_failure_utc"} <= set(entry)
+
+
+def test_a_dated_dataset_with_no_rows_at_all_counts_as_a_failure(monkeypatch, tmp_path, capsys):
+    # EirGrid answering with nothing for a whole week once went down as a success.
+    empty = pd.DataFrame(columns=["timestamp_utc", "region", "series", "value"])
+    monkeypatch.setattr(cli.eirgrid, "fetch", lambda dataset, start, end: empty)
+    monkeypatch.setattr(
+        cli.sys, "argv", ["isem_data", "--datasets", "demand", "--data-dir", str(tmp_path)]
+    )
+
+    with pytest.raises(SystemExit) as stopped:
+        cli.main()
+
+    assert stopped.value.code == 1
+    assert "FAILED demand: NoData" in capsys.readouterr().out
+    assert "no rows at all" in storage.read_status(tmp_path)["demand"]["last_error"]
+    assert not (tmp_path / "demand.parquet").exists()

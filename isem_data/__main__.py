@@ -85,6 +85,10 @@ def main() -> None:
         sys.exit(1)
 
 
+class NoData(RuntimeError):
+    """A source answered, but with nothing for the whole date range."""
+
+
 def download(dataset: str, start: date, end: date, data_dir: Path) -> str:
     """Download one dataset for `start` to `end`, save it, and say what was saved."""
     if dataset == forecasts.DATASET:
@@ -115,6 +119,11 @@ def download(dataset: str, start: date, end: date, data_dir: Path) -> str:
         key = report["key"]
     else:
         df = eirgrid.fetch(dataset, start, end)
+    if df.empty:
+        # Every dated dataset has data for every day, so nothing at all for the range
+        # means the source failed quietly. Count it as a failure, so status.json and the
+        # daily script's notification say so, rather than as a download of 0 rows.
+        raise NoData(f"no rows at all for {start} to {end}")
     path = storage.save(df, dataset, data_dir=data_dir, key=key)
     return f"{len(df)} rows for {start} to {end} -> {path}"
 
