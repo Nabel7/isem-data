@@ -34,9 +34,22 @@ COLUMNS = ["timestamp_utc", "region", "series", "value"]
 INTERVAL = pd.Timedelta(minutes=15)
 
 
-# How long to wait before each retry of an empty answer, in seconds. The blanks can
-# last a while (all of 13 Nov 2026's demand request came back empty), so the waits grow.
-RETRY_WAITS = [2, 5, 15, 30, 60]
+# The dashboard answers with no rows, rather than an error, when it's asked too often:
+# requests 10 seconds apart came back empty, 20 seconds apart worked (tested 15 Nov
+# 2026, from a laptop and from GitHub's servers). So requests are spaced at least
+# MIN_GAP seconds apart, and an empty answer is retried after longer waits still.
+MIN_GAP = 20
+RETRY_WAITS = [30, 60, 120]
+_last_request = float("-inf")
+
+
+def _pace() -> None:
+    """Wait until MIN_GAP seconds have passed since the last request to the dashboard."""
+    global _last_request
+    wait = _last_request + MIN_GAP - time.monotonic()
+    if wait > 0:
+        time.sleep(wait)
+    _last_request = time.monotonic()
 
 
 def fetch_rows(dataset: str, start: date, end: date, region: str = "ALL") -> list[dict]:
@@ -46,8 +59,9 @@ def fetch_rows(dataset: str, start: date, end: date, region: str = "ALL") -> lis
     {"EffectiveTime": "01-Nov-2026 00:00:00", "FieldName": "WIND_ACTUAL",
      "Region": "ALL", "Value": 958}
 
-    The API sometimes answers with no rows for a request that works later, so an
-    empty answer is retried, waiting longer each time (RETRY_WAITS), before giving up.
+    The API answers with no rows when asked too often, so requests are spaced out
+    (MIN_GAP) and an empty answer is retried, waiting longer each time (RETRY_WAITS),
+    before giving up.
     """
     chart_type, areas, _ = DATASETS[dataset]
     params = {
@@ -59,6 +73,7 @@ def fetch_rows(dataset: str, start: date, end: date, region: str = "ALL") -> lis
         "areas": areas,
     }
     for wait in [*RETRY_WAITS, None]:
+        _pace()
         response = web.get(API_URL, params=params, timeout=30)  # raises if the server says no
         rows = response.json()["Rows"]
         if rows or wait is None:
