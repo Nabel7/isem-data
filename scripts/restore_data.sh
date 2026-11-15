@@ -6,6 +6,8 @@
 #   scripts/restore_data.sh                    (uses the place in .backup_to)
 #
 # ISEM_RESTORE_PREFIX reads releases with that prefix (ci-latest, ...) instead.
+# ISEM_RESTORE_FORECASTS=0 skips the per-farm wind forecasts (129 MB by Nov 2026),
+# for jobs that only need the main datasets, such as building the website.
 # Needs the gh command, logged in or given a token in GH_TOKEN. Files already in data/
 # are replaced.
 
@@ -38,7 +40,10 @@ fetch() {  # tag, folder
 
 mkdir -p data/wind_unit_forecasts
 fetch "${prefix}latest" data
-months=($(gh release list -R "$repo" --limit 200 --json tagName -q '.[].tagName' | grep "^${prefix}forecasts-" | sort))
+months=()
+if [[ "${ISEM_RESTORE_FORECASTS:-1}" != 0 ]]; then
+    months=($(gh release list -R "$repo" --limit 200 --json tagName -q '.[].tagName' | grep "^${prefix}forecasts-" | sort))
+fi
 for tag in $months; do
     fetch "$tag" data/wind_unit_forecasts
 done
