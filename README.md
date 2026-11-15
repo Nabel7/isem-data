@@ -229,13 +229,10 @@ For GitHub, create a private repository first (`gh repo create YourName/isem-dat
 
 Each run ends by checking every file on GitHub against the local one. Until a place is set, each daily run ends with `NOT BACKED UP` in the log and a notification.
 
-To restore onto a new machine:
+To restore onto a new machine (or a GitHub Actions run), with `gh` logged in:
 
 ```bash
-gh release download latest -R YourName/isem-data-archive -D data
-for month in 2026-08 2026-09 2026-10 2026-11; do   # every forecasts-* release
-  gh release download forecasts-$month -R YourName/isem-data-archive -D data/wind_unit_forecasts
-done
+scripts/restore_data.sh github:YourName/isem-data-archive
 ```
 
 ## How it works

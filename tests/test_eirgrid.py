@@ -93,6 +93,7 @@ def test_empty_answers_are_retried(monkeypatch):
     answers = [FakeResponse([]), FakeResponse([row("01-Nov-2026 00:00:00")])]
     monkeypatch.setattr(web.requests, "get", lambda url, params, timeout: answers.pop(0))
     monkeypatch.setattr(eirgrid.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(eirgrid, "MIN_GAP", 0)
 
     rows = eirgrid.fetch_rows("wind", date(2026, 11, 1), date(2026, 11, 1))
 
@@ -111,6 +112,7 @@ def test_gives_up_after_the_last_wait(monkeypatch):
 
     waits = []
     monkeypatch.setattr(eirgrid.time, "sleep", waits.append)
+    monkeypatch.setattr(eirgrid, "MIN_GAP", 0)
     assert eirgrid.fetch_rows("wind", date(2026, 11, 1), date(2026, 11, 1)) == []
     assert len(calls) == len(eirgrid.RETRY_WAITS) + 1  # the first try, then one per wait
     assert waits == eirgrid.RETRY_WAITS
@@ -169,3 +171,28 @@ def test_find_gaps_handles_clock_change_days():
     gaps = eirgrid.find_gaps(df, "demand", date(2026, 10, 25), date(2026, 10, 25))
 
     assert gaps["readings"].sum() == 8
+
+
+def test_requests_are_spaced_out(monkeypatch):
+    # Two requests in a row: the second waits until MIN_GAP seconds after the first.
+    clock = [1000.0]
+    waits = []
+
+    def sleep(seconds):
+        waits.append(seconds)
+        clock[0] += seconds
+
+    monkeypatch.setattr(eirgrid.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(eirgrid.time, "sleep", sleep)
+    monkeypatch.setattr(eirgrid, "_last_request", float("-inf"))
+    monkeypatch.setattr(
+        web.requests,
+        "get",
+        lambda url, params, timeout: FakeResponse([row("01-Nov-2026 00:00:00")]),
+    )
+
+    eirgrid.fetch_rows("wind", date(2026, 11, 1), date(2026, 11, 1))
+    clock[0] += 5  # five seconds of other work
+    eirgrid.fetch_rows("demand", date(2026, 11, 1), date(2026, 11, 1))
+
+    assert waits == [eirgrid.MIN_GAP - 5]
