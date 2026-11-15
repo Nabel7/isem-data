@@ -21,7 +21,10 @@
 #   weekly         the main datasets once a week, kept for 8 weeks, in case a bad file
 #                  replaces a good one in latest; on GitHub: weekly-2026-W46
 #
-# To restore from GitHub, see "Backing up the archive" in the README.
+# ISEM_BACKUP_PREFIX puts a prefix on every GitHub release name (ci-latest, ...), so a
+# trial copy can't touch the real one.
+#
+# To restore from GitHub: scripts/restore_data.sh (see "Backing up the archive" in the README).
 #
 # daily_update.sh runs this after each download. It is safe to run by hand.
 
@@ -41,6 +44,8 @@ if [[ -z "$dest" ]]; then
 fi
 
 week=$(date +%G-W%V)
+prefix=${ISEM_BACKUP_PREFIX:-}
+filesize() { wc -c < "$1" | tr -d ' '; }   # works on macOS and Linux alike
 forecasts=data/wind_unit_forecasts
 main_files=(data/*.parquet(N) data/status.json(N))   # (N): no error if there are none
 
@@ -83,7 +88,7 @@ upload_changed() {  # tag, files...
     )
     local changed=()
     for file in "$@"; do
-        [[ "${remote[${file:t}]:-}" == "$(stat -f %z "$file")" ]] || changed+=("$file")
+        [[ "${remote[${file:t}]:-}" == "$(filesize "$file")" ]] || changed+=("$file")
     done
     if (( ${#changed} )); then
         gh release upload "$tag" $changed -R "$repo" --clobber >/dev/null
@@ -101,7 +106,7 @@ check_uploaded() {  # tag, files...
     )
     for file in "$@"; do
         checked=$(( checked + 1 ))
-        if [[ "${remote[${file:t}]:-}" != "$(stat -f %z "$file")" ]]; then
+        if [[ "${remote[${file:t}]:-}" != "$(filesize "$file")" ]]; then
             echo "WARNING: ${file:t} in $tag doesn't match the local file"
             wrong=$(( wrong + 1 ))
         fi
@@ -117,33 +122,33 @@ backup_to_github() {
     fi
 
     # The main datasets: always replaced, since they change every day.
-    ensure_release latest "Latest copy of the main datasets"
-    gh release upload latest $main_files -R "$repo" --clobber >/dev/null
+    ensure_release "${prefix}latest" "Latest copy of the main datasets"
+    gh release upload "${prefix}latest" $main_files -R "$repo" --clobber >/dev/null
     sent=$(( sent + ${#main_files} ))
 
     # The forecasts: one release per month, sending only new or changed days.
     local months=($(ls $forecasts 2>/dev/null | cut -c1-7 | sort -u))
     for month in $months; do
-        ensure_release "forecasts-$month" "Per-farm wind forecasts, $month"
-        upload_changed "forecasts-$month" $forecasts/$month-*.parquet
+        ensure_release "${prefix}forecasts-$month" "Per-farm wind forecasts, $month"
+        upload_changed "${prefix}forecasts-$month" $forecasts/$month-*.parquet
     done
 
     # Once a week, a second copy of the main datasets; keep the 8 newest.
-    if ! gh release view "weekly-$week" -R "$repo" >/dev/null 2>&1; then
-        ensure_release "weekly-$week" "Main datasets, week $week"
-        gh release upload "weekly-$week" $main_files -R "$repo" --clobber >/dev/null
-        local weeks=($(gh release list -R "$repo" --limit 200 --json tagName -q '.[].tagName' | grep '^weekly-' | sort -r))
+    if ! gh release view "${prefix}weekly-$week" -R "$repo" >/dev/null 2>&1; then
+        ensure_release "${prefix}weekly-$week" "Main datasets, week $week"
+        gh release upload "${prefix}weekly-$week" $main_files -R "$repo" --clobber >/dev/null
+        local weeks=($(gh release list -R "$repo" --limit 200 --json tagName -q '.[].tagName' | grep "^${prefix}weekly-" | sort -r))
         for old in ${weeks[9,-1]}; do gh release delete "$old" -R "$repo" --cleanup-tag --yes >/dev/null; done
     fi
 
     # Make sure what's on GitHub is what's here.
-    check_uploaded latest $main_files
-    for month in $months; do check_uploaded "forecasts-$month" $forecasts/$month-*.parquet; done
+    check_uploaded "${prefix}latest" $main_files
+    for month in $months; do check_uploaded "${prefix}forecasts-$month" $forecasts/$month-*.parquet; done
     if (( wrong )); then
         echo "WARNING: $wrong of $checked files on GitHub don't match. The backup is incomplete."
         exit 5
     fi
-    echo "backup: $checked files match on github.com/$repo ($sent sent this run); weekly copy $week"
+    echo "backup: $checked files match on github.com/$repo ($sent sent this run); weekly copy ${prefix}weekly-$week"
 }
 
 case "$dest" in
