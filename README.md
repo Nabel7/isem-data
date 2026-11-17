@@ -13,6 +13,7 @@ flowchart TB
         EG["EirGrid Smart Grid Dashboard<br/>undocumented JSON API"]
         SEMO["SEMO reports API<br/>paginated: CSV, XML, PDF"]
         OSM["OpenStreetMap<br/>Overpass API"]
+        EG ~~~ SEMO ~~~ OSM
     end
     subgraph pipeline["isem-data (this repo)"]
         direction LR
