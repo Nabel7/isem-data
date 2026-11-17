@@ -7,7 +7,7 @@ Download and store data from the Irish electricity market (I-SEM) in one tidy fo
 ## Architecture
 
 ```mermaid
-flowchart LR
+flowchart TB
     subgraph sources["Public sources"]
         EG["EirGrid Smart Grid Dashboard<br/>undocumented JSON API"]
         SEMO["SEMO reports API<br/>paginated: CSV, XML, PDF"]
