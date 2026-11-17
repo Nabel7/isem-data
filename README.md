@@ -9,33 +9,32 @@ Download and store data from the Irish electricity market (I-SEM) in one tidy fo
 ```mermaid
 flowchart TB
     subgraph sources["Public sources"]
+        direction LR
         EG["EirGrid Smart Grid Dashboard<br/>undocumented JSON API"]
         SEMO["SEMO reports API<br/>paginated: CSV, XML, PDF"]
         OSM["OpenStreetMap<br/>Overpass API"]
     end
     subgraph pipeline["isem-data (this repo)"]
-        WEB["web.py<br/>retries with backoff"]
-        MODS["one module per source<br/>eirgrid · semo · balancing<br/>forecasts · locations"]
+        direction LR
+        MODS["one module per source<br/>every request via web.py:<br/>retries with backoff"]
         STORE["storage.py<br/>idempotent, atomic saves"]
         DATA[("data/<br/>Parquet, all times UTC")]
-        STATUS["status.json<br/>last success and error<br/>per dataset"]
         CALC["dispatch_down.py<br/>tracker.py"]
+        STATUS["status.json<br/>last success and error"]
+        MODS --> STORE --> DATA --> CALC
+        STORE --> STATUS
     end
     subgraph archive["isem-data-archive (private)"]
         REL[("GitHub releases<br/>latest · weekly · forecasts")]
     end
     subgraph site["Open Power Lab website"]
-        FILES["small CSV / JSON<br/>summary files"]
-        PAGES["static site<br/>built daily"]
+        direction LR
+        FILES["small CSV / JSON<br/>summary files"] --> PAGES["static site<br/>built daily"]
     end
-    EG --> WEB
-    SEMO --> WEB
-    OSM --> WEB
-    WEB --> MODS --> STORE --> DATA
-    STORE --> STATUS
-    DATA -->|"backup_data.sh"| REL
-    REL -->|"restore_data.sh"| DATA
-    DATA --> CALC --> FILES --> PAGES
+    sources --> pipeline
+    pipeline -->|"backup_data.sh"| archive
+    archive -->|"restore_data.sh"| pipeline
+    pipeline --> site
 ```
 
 **Every morning on GitHub Actions** (a fresh machine each time, so the backup is restored, and so tested, every day):
