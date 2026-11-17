@@ -4,6 +4,56 @@
 
 Download and store data from the Irish electricity market (I-SEM) in one tidy format, ready for analysis and forecasting.
 
+## Architecture
+
+```mermaid
+flowchart LR
+    subgraph sources["Public sources"]
+        EG["EirGrid Smart Grid Dashboard<br/>undocumented JSON API"]
+        SEMO["SEMO reports API<br/>paginated: CSV, XML, PDF"]
+        OSM["OpenStreetMap<br/>Overpass API"]
+    end
+    subgraph pipeline["isem-data (this repo)"]
+        WEB["web.py<br/>retries with backoff"]
+        MODS["one module per source<br/>eirgrid · semo · balancing<br/>forecasts · locations"]
+        STORE["storage.py<br/>idempotent, atomic saves"]
+        DATA[("data/<br/>Parquet, all times UTC")]
+        STATUS["status.json<br/>last success and error<br/>per dataset"]
+        CALC["dispatch_down.py<br/>tracker.py"]
+    end
+    subgraph archive["isem-data-archive (private)"]
+        REL[("GitHub releases<br/>latest · weekly · forecasts")]
+    end
+    subgraph site["Open Power Lab website"]
+        FILES["small CSV / JSON<br/>summary files"]
+        PAGES["static site<br/>built daily"]
+    end
+    EG --> WEB
+    SEMO --> WEB
+    OSM --> WEB
+    WEB --> MODS --> STORE --> DATA
+    STORE --> STATUS
+    DATA -->|"backup_data.sh"| REL
+    REL -->|"restore_data.sh"| DATA
+    DATA --> CALC --> FILES --> PAGES
+```
+
+**Every morning on GitHub Actions** (a fresh machine each time, so the backup is restored, and so tested, every day):
+
+```mermaid
+flowchart LR
+    A["Restore archive<br/>from releases"] --> B["Download the<br/>last 7 days"]
+    B --> C["Back up<br/>(even after a failure)"]
+    C --> D["Write STATUS.md<br/>from status.json"]
+    D --> E{"Any dataset<br/>failed?"}
+    E -->|no| F["Green run"]
+    E -->|yes| G["Red run + email"]
+```
+
+- **Sources fail in odd ways**, so every request goes through `web.py`: timeouts, 429s and 5xx errors are retried with growing waits; a 404 is not. EirGrid answers too-frequent requests with an empty "successful" reply, so its requests are paced 20 seconds apart, and a download that comes back completely empty counts as a failure.
+- **Re-downloading is safe.** Each run fetches the last 7 days again and saves drop duplicate rows by key, so a missed day is filled in by the next run.
+- **One failure doesn't stop the rest.** Each dataset downloads on its own; failures are recorded in `status.json`, the rest still save and back up, and the run ends red.
+
 ## What it collects
 
 | Dataset | Series | Source | Resolution |
