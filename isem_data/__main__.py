@@ -65,24 +65,42 @@ def main() -> None:
     if start > end:
         parser.error(f"start must be on or before end (got start={start}, end={end})")
 
-    data_dir = args.data_dir.expanduser()
+    failed = run(args.datasets, start, end, args.data_dir.expanduser())
+    if failed:
+        print(f"{len(failed)} of {len(args.datasets)} dataset(s) failed: {', '.join(failed)}")
+        sys.exit(1)
+
+
+def run(datasets: list[str], start: date, end: date, data_dir: Path) -> list[str]:
+    """Download each dataset; return the ones that failed.
+
+    Anything that fails gets one more try at the end of the run. By then several minutes
+    have passed, which is usually enough for a source that answered empty because it was
+    asked too often (EirGrid's dashboard does this) or that had a moment's outage.
+    """
+    failed = try_each(datasets, start, end, data_dir, last_try=False)
+    if failed:
+        print(f"Trying again at the end: {', '.join(failed)}")
+        failed = try_each(failed, start, end, data_dir, last_try=True)
+    return failed
+
+
+def try_each(datasets, start, end, data_dir, last_try: bool) -> list[str]:
     failed = []
-    for dataset in args.datasets:
+    for dataset in datasets:
         # One dataset failing (a site being down, say) mustn't stop the others.
         try:
             summary = download(dataset, start, end, data_dir)
         except Exception as error:
             traceback.print_exc()
             print(f"FAILED {dataset}: {type(error).__name__}: {error}")
-            storage.record_status(dataset, data_dir, error=f"{type(error).__name__}: {error}")
+            if last_try:  # only a failure that stands goes into status.json
+                storage.record_status(dataset, data_dir, error=f"{type(error).__name__}: {error}")
             failed.append(dataset)
             continue
         print(f"{dataset}: {summary}")
         storage.record_status(dataset, data_dir, start=str(start), end=str(end), result=summary)
-
-    if failed:
-        print(f"{len(failed)} of {len(args.datasets)} dataset(s) failed: {', '.join(failed)}")
-        sys.exit(1)
+    return failed
 
 
 class NoData(RuntimeError):
