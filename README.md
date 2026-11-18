@@ -43,9 +43,10 @@ flowchart TB
 ```mermaid
 flowchart LR
     A["Restore archive<br/>from releases"] --> B["Download the<br/>last 7 days"]
-    B --> C["Back up<br/>(even after a failure)"]
+    B --> K["Check the data<br/>checks.json"]
+    K --> C["Back up<br/>(even after a failure)"]
     C --> D["Write STATUS.md<br/>from status.json"]
-    D --> E{"Any dataset<br/>failed?"}
+    D --> E{"Any dataset<br/>or check failed?"}
     E -->|no| F["Green run"]
     E -->|yes| G["Red run + email"]
 ```
@@ -53,6 +54,7 @@ flowchart LR
 - **Sources fail in odd ways**, so every request goes through `web.py`: timeouts, 429s and 5xx errors are retried with growing waits; a 404 is not. EirGrid answers too-frequent requests with an empty "successful" reply, so its requests are paced 20 seconds apart, and a download that comes back completely empty counts as a failure.
 - **Re-downloading is safe.** Each run fetches the last 7 days again and saves drop duplicate rows by key, so a missed day is filled in by the next run.
 - **One failure doesn't stop the rest.** Each dataset downloads on its own; failures are recorded in `status.json`, the rest still save and back up, and the run ends red.
+- **The data itself is checked after every run** (`python -m isem_data.checks`, results in `data/checks.json`). Is every dataset as recent as usual? Is any day missing (other than the ones in `isem_data/known_gaps.csv`, which the sources never published)? Are most farms "held down" on a day with almost no instructions, the sign of a gap leaving switches stuck? Each check exists because that problem once got through unnoticed. A failed check fails the run.
 
 ## What it collects
 
@@ -257,6 +259,7 @@ If the Mac is asleep at 14:00 the job runs when it wakes. If it is off for more 
 - **A slow or unavailable site:** every request is tried up to four times, with a longer pause each time (`isem_data/web.py`).
 - **A dataset that still fails:** the other datasets download anyway. The run then ends with `FAILED` in the log, a notification on the Mac and a non-zero exit code.
 - **How stale is each dataset?** `data/status.json` records when each one last downloaded successfully, and its last error if any.
+- **Does the data make sense?** `python -m isem_data.checks` runs after the download and writes `data/checks.json`. A failed check ends the run with `FAILED` and a notification, like a failed download. If a source never published a day, add it to `isem_data/known_gaps.csv` with a note.
 - **An interrupted save:** files are written beside the real one and swapped in, so a crash or full disk leaves the old file intact.
 
 ### Backing up the archive

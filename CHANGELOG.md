@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Added
+- `python -m isem_data.checks` checks the archive after each daily download and writes `data/checks.json`: `freshness` (every dataset as recent as usual), `missing_days` (no day without data, apart from those in `isem_data/known_gaps.csv`) and `stuck_switches` (no day with most farms held down and almost no instructions, the sign of the 27-28 Oct 2026 gap). A failed check makes `scripts/daily_update.sh` end with `FAILED` and a notification.
+
 ### Changed
 - `storage.save()` takes a `key` (the columns that identify a row), so datasets shaped differently from the tidy table can be saved too. Saved rows are now sorted by that key, i.e. by time first.
 - **Breaking:** the value column is now called `value` (was `value_mw`), and series names carry their unit: `wind_actual_mw`, `wind_forecast_mw`, `demand_actual_mw`. This lets prices and other units share the same table shape. Delete your `data/` folder and download again; saving into an old-style file now stops with a message saying so.

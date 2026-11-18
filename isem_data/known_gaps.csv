@@ -1,0 +1,11 @@
+# Days a source never published, so they can't be downloaded. checks.missing_days
+# accepts a missing day listed here; any other missing day fails the daily checks.
+#
+# Add a day only after trying to download it again and confirming the source has no
+# file for it. Say what you checked in the note.
+dataset,day,note
+availability,2026-10-27,SEMO published no next-day reports for 27 Oct 2026 (audit H1)
+metered,2026-10-27,SEMO published no next-day reports for 27 Oct 2026 (audit H1)
+dispatch_instructions_d4,2026-10-24,No four-day-later instruction file for 24 Oct 2026 (see balancing.py); the next-day version covers it
+dispatch_instructions_d4,2026-10-25,No four-day-later instruction file for 25 Oct 2026 (see balancing.py); the next-day version covers it
+wind_unit_forecasts,2026-10-02,SEMO has no per-farm forecast files for 2 Oct 2026 (audit L2)

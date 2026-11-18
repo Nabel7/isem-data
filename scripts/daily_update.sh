@@ -10,6 +10,10 @@
 # If a dataset fails, the others still download; the run then ends with FAILED in the
 # log, a notification on the Mac, and a non-zero exit code. data/status.json records
 # when each dataset last downloaded successfully.
+#
+# After the download, `python -m isem_data.checks` looks at the archive itself: is every
+# dataset up to date, is any day missing, are any farms stuck "held down"? Results go to
+# data/checks.json; a failed check is reported the same way as a failed download.
 
 set -uo pipefail  # treat unset variables as errors (no -e: a failed step is reported, not fatal)
 
@@ -24,16 +28,22 @@ echo "=== $(date '+%Y-%m-%d %H:%M:%S') daily update from $start ==="
 .venv/bin/python -m isem_data --start "$start"
 download=$?
 
+.venv/bin/python -m isem_data.checks
+checks=$?
+
 scripts/backup_data.sh
 backup=$?
 
 if (( download != 0 )); then
     echo "=== $(date '+%Y-%m-%d %H:%M:%S') FAILED: some datasets did not download (see above) ==="
     notify "Daily download: some datasets failed. See logs/daily_update.log"
+elif (( checks != 0 )); then
+    echo "=== $(date '+%Y-%m-%d %H:%M:%S') FAILED: data checks (see above and data/checks.json) ==="
+    notify "Daily download: data checks failed. See logs/daily_update.log"
 elif (( backup != 0 )); then
     echo "=== $(date '+%Y-%m-%d %H:%M:%S') done, but NOT BACKED UP ==="
     notify "Downloaded, but the data has no backup. See scripts/backup_data.sh"
 else
     echo "=== $(date '+%Y-%m-%d %H:%M:%S') done ==="
 fi
-exit $(( download != 0 ? download : backup ))
+exit $(( download != 0 ? download : checks != 0 ? checks : backup ))
