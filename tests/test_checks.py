@@ -167,7 +167,12 @@ def test_instructions_of_other_kinds_dont_count():
 
 def test_a_check_that_cannot_run_fails_and_the_others_still_run(tmp_path):
     results = checks.run(tmp_path, TODAY)  # an empty archive
-    assert [r.name for r in results] == ["freshness", "missing_days", "stuck_switches"]
+    assert [r.name for r in results] == [
+        "freshness",
+        "missing_days",
+        "stuck_switches",
+        "entsoe_matches_semo",
+    ]
     assert all(r.status == "fail" for r in results)
     assert "Could not run" in results[1].summary
 
@@ -186,3 +191,64 @@ def test_results_are_written_with_the_worst_status(tmp_path):
         "summary": "hmm",
         "details": {"n": 1},
     }
+
+
+# --- ENTSO-E against SEMO ---
+
+
+def semo_prices(values, start="2026-11-19 00:00"):
+    times = pd.date_range(start, periods=len(values), freq="30min", tz="UTC")
+    rows = [
+        (t, region, "dam_price_eur_mwh", v)
+        for t, v in zip(times, values, strict=True)
+        for region in ["ROI", "NI"]
+    ]
+    return pd.DataFrame(rows, columns=["timestamp_utc", "region", "series", "value"])
+
+
+def entsoe_prices(values, start="2026-11-19 00:00"):
+    times = pd.date_range(start, periods=len(values), freq="h", tz="UTC")
+    return pd.DataFrame(
+        {"timestamp_utc": times, "region": "SEM", "series": "dam_price_eur_mwh", "value": values}
+    )
+
+
+def test_entsoe_hours_that_average_semos_half_hours_pass():
+    result = checks.entsoe_matches_semo(
+        entsoe_prices([105.0, 92.005]), semo_prices([100.0, 110.0, 92.0, 92.01])
+    )
+    assert result.status == "pass"
+    assert result.details["hours_compared"] == 2
+
+
+def test_an_entsoe_hour_that_differs_from_semo_fails():
+    result = checks.entsoe_matches_semo(
+        entsoe_prices([105.0, 95.0]), semo_prices([100.0, 110.0, 92.0, 92.01])
+    )
+    assert result.status == "fail"
+    assert result.details["mismatches"][0]["hour_utc"] == "2026-11-19T01:00Z"
+
+
+def test_hours_semo_doesnt_have_yet_arent_compared():
+    # Tomorrow from ENTSO-E, and an hour with only one SEMO half-hour: neither counts.
+    result = checks.entsoe_matches_semo(
+        entsoe_prices([105.0, 999.0, 999.0]), semo_prices([100.0, 110.0, 50.0])
+    )
+    assert result.status == "pass"
+    assert result.details["hours_compared"] == 1
+
+
+def test_nothing_to_compare_warns():
+    result = checks.entsoe_matches_semo(
+        entsoe_prices([105.0], start="2026-11-21 00:00"), semo_prices([100.0, 110.0])
+    )
+    assert result.status == "warn"
+
+
+def test_a_missing_trading_day_is_found_though_every_clock_day_has_some_hours():
+    # Trading days 18 and 20 Nov, hourly, but not 19 Nov. The 23:00 hour that starts
+    # 20 Nov falls on clock day 19 Nov, so by clock day nothing looks missing.
+    hours = pd.date_range("2026-11-17 23:00", "2026-11-20 22:00", freq="h", tz="UTC")
+    times = pd.Series(hours[(hours < "2026-11-18 23:00") | (hours >= "2026-11-19 23:00")])
+    assert checks.days_without_data(checks.irish_days(times)) == []
+    assert checks.days_without_data(checks.trading_days(times)) == ["2026-11-19"]

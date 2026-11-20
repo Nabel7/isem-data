@@ -16,6 +16,9 @@ problem within a day or two, not weeks later.
 - `stuck_switches` fails when most farms count as held down on a day with almost no
   instructions. It would have caught 28 Oct 2026, when 82% of wind units were left
   "curtailed" (PR #16).
+- `entsoe_matches_semo` fails when ENTSO-E's hourly day-ahead price isn't the average
+  of SEMO's two half-hours. The two are independent copies of the same auction result,
+  so a mismatch means one of them was misread or later corrected.
 
 Each check passes, warns or fails. Any fail makes the command exit 1, so the daily
 script's notification fires and the GitHub job fails. Everything is written to
@@ -47,7 +50,8 @@ KNOWN_GAPS = Path(__file__).with_name("known_gaps.csv")
 # How many days behind today each dataset's newest day normally is when the daily job
 # runs. EirGrid's readings and the day-ahead results are complete for yesterday; SEMO's
 # per-unit reports come a day later, and the four-day-later instructions four days
-# after that. Measured on 18 Nov 2026.
+# after that. Measured on 18 Nov 2026. ENTSO-E has the next day's prices from the
+# afternoon before: today's at least, at whatever time the job runs.
 EXPECTED_LAG_DAYS = {
     "wind": 1,
     "demand": 1,
@@ -60,6 +64,7 @@ EXPECTED_LAG_DAYS = {
     "metered": 2,
     "wind_unit_forecasts": 2,
     "dispatch_instructions_d4": 5,
+    "entsoe_prices": 0,
 }
 # One day late is allowed: a source publishing later than usual, or the job running
 # early. Two days late is a failure.
@@ -67,7 +72,21 @@ SLACK_DAYS = 1
 
 # Datasets with data for every Irish day. The day-ahead orders come from the same SEMO
 # files as the prices, so the prices stand for both (and are much quicker to read).
-DAILY_DATASETS = ["wind", "demand", "wind_regions", "prices", "availability", "metered"]
+DAILY_DATASETS = [
+    "wind",
+    "demand",
+    "wind_regions",
+    "prices",
+    "availability",
+    "metered",
+    "entsoe_prices",
+]
+
+# The day-ahead prices come by trading day, which starts at 23:00 Irish time the
+# evening before. Counted by clock day, a whole missing trading day still looks covered
+# (its neighbours' hours fall on the same clock days), so these count by trading day.
+# That is how ENTSO-E's missing 29 Oct 2026 was first missed.
+TRADING_DAY_DATASETS = {"prices", "entsoe_prices"}
 
 # A day counts as "stuck" for a switch (constraint or curtailment) when, on average over
 # the day, more than STUCK_SHARE of wind units are held down by it, yet fewer than
@@ -77,6 +96,10 @@ DAILY_DATASETS = ["wind", "demand", "wind_regions", "prices", "availability", "m
 # highest share on any day with under 20 instructions, after the fix, is 2%.
 STUCK_SHARE = 0.3
 STUCK_FEW = 20
+
+# ENTSO-E gives prices to 3 decimal places and SEMO to 2, so the average of two SEMO
+# half-hours matches ENTSO-E's hour exactly; this only allows for rounding.
+PRICE_TOLERANCE = 0.01
 
 
 @dataclass
@@ -95,6 +118,11 @@ def worst(statuses) -> str:
 def irish_days(timestamps: pd.Series) -> set[str]:
     """The Irish clock days (YYYY-MM-DD) that UTC timestamps fall on."""
     return set(timestamps.dt.tz_convert(LOCAL_TIME).dt.strftime("%Y-%m-%d"))
+
+
+def trading_days(timestamps: pd.Series) -> set[str]:
+    """The trading days (YYYY-MM-DD) of UTC timestamps: each runs 23:00 to 23:00 Irish time."""
+    return irish_days(timestamps + pd.Timedelta(hours=1))
 
 
 def days_without_data(days: set[str]) -> list[str]:
@@ -247,6 +275,48 @@ def stuck_switches(farms: pd.DataFrame, instructions: pd.DataFrame) -> Result:
     return Result("stuck_switches", "pass", f"No stuck switches in {day.nunique()} days", details)
 
 
+# --- ENTSO-E against SEMO ---------------------------------------------------------
+
+
+def entsoe_matches_semo(entsoe: pd.DataFrame, prices: pd.DataFrame) -> Result:
+    """Is each of ENTSO-E's hourly prices the average of SEMO's two half-hours?
+
+    `entsoe` is the entsoe_prices dataset, `prices` SEMO's prices dataset. ROI's price
+    stands for SEMO's: the day-ahead auction gives both regions the same price. Only
+    hours where SEMO has both half-hours are compared."""
+    semo = prices[(prices["region"] == "ROI") & (prices["series"] == "dam_price_eur_mwh")]
+    semo = semo.dropna(subset=["value"])
+    hour = semo["timestamp_utc"].dt.floor("h")
+    pairs = semo.groupby(hour)["value"].agg(["mean", "size"])
+    pairs = pairs[pairs["size"] == 2]["mean"].rename("semo")
+    hourly = entsoe.set_index("timestamp_utc")["value"].rename("entsoe")
+    both = hourly.to_frame().join(pairs, how="inner")
+    gap = (both["entsoe"] - both["semo"]).abs()
+    wrong = both[gap > PRICE_TOLERANCE]
+    details = {
+        "hours_compared": int(len(both)),
+        "largest_gap": round(float(gap.max()), 3) if len(gap) else None,
+        "mismatches": [
+            {"hour_utc": t.strftime("%Y-%m-%dT%H:%MZ"), "entsoe": e, "semo": round(m, 3)}
+            for t, e, m in wrong[["entsoe", "semo"]].head(20).itertuples()
+        ],
+    }
+    if both.empty:
+        return Result("entsoe_matches_semo", "warn", "No hours in both to compare yet", details)
+    if len(wrong):
+        first = details["mismatches"][0]
+        return Result(
+            "entsoe_matches_semo",
+            "fail",
+            f"{len(wrong)} of {len(both)} hours differ between ENTSO-E and SEMO, first "
+            f"{first['hour_utc']}: {first['entsoe']} against {first['semo']}",
+            details,
+        )
+    return Result(
+        "entsoe_matches_semo", "pass", f"All {len(both)} hours match SEMO's prices", details
+    )
+
+
 # --- running them ------------------------------------------------------------------
 
 
@@ -282,9 +352,9 @@ def run(data_dir: Path, today: date) -> list[Result]:
         day_sets = {}
         for name in DAILY_DATASETS:
             path = data_dir / f"{name}.parquet"
-            day_sets[name] = irish_days(
-                pd.read_parquet(path, columns=["timestamp_utc"])["timestamp_utc"]
-            )
+            times = pd.read_parquet(path, columns=["timestamp_utc"])["timestamp_utc"]
+            days = trading_days if name in TRADING_DAY_DATASETS else irish_days
+            day_sets[name] = days(times)
         # The instructions the figures use: four-day-later where it exists, else next-day.
         day_sets["dispatch_instructions"] = irish_days(instructions()["timestamp_utc"])
         day_sets["dispatch_instructions_d4"] = irish_days(
@@ -304,6 +374,10 @@ def run(data_dir: Path, today: date) -> list[Result]:
         return stuck_switches(farms, used)
 
     attempt("stuck_switches", check_stuck_switches)
+    attempt(
+        "entsoe_matches_semo",
+        lambda: entsoe_matches_semo(load("entsoe_prices"), load("prices")),
+    )
     return results
 
 
