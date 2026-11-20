@@ -73,6 +73,16 @@ def test_a_trading_day_runs_23_00_to_23_00_irish_time():
     )
 
 
+def test_the_days_the_clocks_change_have_25_and_23_hours():
+    first, last = entsoe.window(date(2026, 10, 25), date(2026, 10, 25))
+    assert (first, last) == (
+        pd.Timestamp("2026-10-24 22:00", tz="UTC"),
+        pd.Timestamp("2026-10-25 23:00", tz="UTC"),
+    )
+    first, last = entsoe.window(date(2026, 3, 29), date(2026, 3, 29))
+    assert last - first == pd.Timedelta(hours=23)
+
+
 def test_a_long_range_is_split_into_requests_ENTSO_E_allows(monkeypatch):
     asked = []
 
