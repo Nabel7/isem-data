@@ -9,3 +9,4 @@ metered,2026-10-27,SEMO published no next-day reports for 27 Oct 2026 (audit H1)
 dispatch_instructions_d4,2026-10-24,No four-day-later instruction file for 24 Oct 2026 (see balancing.py); the next-day version covers it
 dispatch_instructions_d4,2026-10-25,No four-day-later instruction file for 25 Oct 2026 (see balancing.py); the next-day version covers it
 wind_unit_forecasts,2026-10-02,SEMO has no per-farm forecast files for 2 Oct 2026 (audit L2)
+entsoe_prices,2026-10-29,ENTSO-E has no SEM day-ahead prices for trading day 29 Oct 2026 (asked again for that day alone on 20 Nov 2026: "No matching data found"); SEMO's prices cover it

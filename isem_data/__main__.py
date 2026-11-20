@@ -12,6 +12,9 @@ python -m isem_data --datasets farm_names osm_wind_farms  # farm names and map p
 python -m isem_data --datasets wind_unit_forecasts --start 2026-08-11
                                                       # every version of SEMO's per-farm
                                                       # wind forecasts (~90 days online)
+python -m isem_data --datasets entsoe_prices --start 2025-11-07
+                                                      # ENTSO-E's hourly day-ahead prices,
+                                                      # up to tomorrow (needs a token)
 python -m isem_data --data-dir ~/grid-data            # save somewhere else
 """
 
@@ -21,11 +24,12 @@ import traceback
 from datetime import date, timedelta
 from pathlib import Path
 
-from . import balancing, eirgrid, forecasts, locations, semo, storage
+from . import balancing, eirgrid, entsoe, forecasts, locations, semo, storage
 
 # Every dataset the command can download: EirGrid's, SEMO's day-ahead prices and
 # company orders (both read from the same SEMO files), and SEMO's per-unit
-# balancing reports (dispatch instructions, availability, metered output, unit list).
+# balancing reports (dispatch instructions, availability, metered output, unit list),
+# and ENTSO-E's copy of the day-ahead prices, which has tomorrow's a day early.
 DATASETS = [
     *eirgrid.DATASETS,
     "wind_regions",
@@ -33,6 +37,7 @@ DATASETS = [
     "orders",
     *balancing.DATASETS,
     forecasts.DATASET,
+    entsoe.DATASET,
 ]
 
 # Reference data that barely changes, so it's left out of the default (daily) run:
@@ -122,6 +127,11 @@ def download(dataset: str, start: date, end: date, data_dir: Path) -> str:
         df = eirgrid.fetch_wind_regions(start, end)
     elif dataset == "prices":
         df = semo.fetch(start, end)
+    elif dataset == entsoe.DATASET:
+        # ENTSO-E has the next day's prices from the afternoon before, so its range runs
+        # on to tomorrow (and never further: later days can't have been published).
+        end = min(end + timedelta(days=2), date.today() + timedelta(days=1))
+        df = entsoe.fetch(start, end)
     elif dataset == "orders":
         df = semo.fetch(start, end, parse=semo.parse_orders)
         key = semo.ORDER_KEY  # orders are identified differently from the tidy datasets

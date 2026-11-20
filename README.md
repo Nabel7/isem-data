@@ -71,6 +71,7 @@ flowchart LR
 | `metered` | MWh each unit actually produced in each half-hour | SEMO report BM-086 | 30 min |
 | `units` | each unit's company, type, region and fuel (e.g. `WIND`) | SEMO report BM-091 | latest list |
 | `wind_unit_forecasts` | EirGrid's wind forecast for each unit, **every version as published** (see below) | SEMO report BM-012 | 15 min, ~4 versions a day |
+| `entsoe_prices` | `dam_price_eur_mwh` for region `SEM`, **including tomorrow's** (see below) | ENTSO-E Transparency Platform | 60 min |
 
 EirGrid values are for the whole island (Ireland and Northern Ireland), except `wind_regions`. Day-ahead prices and volumes are per bidding zone, `ROI` and `NI`.
 
@@ -80,7 +81,7 @@ SEMO only keeps about a year of day-ahead files online, so back-fill early:
 python -m isem_data --datasets prices orders --start 2025-11-07   # about 8 minutes each for a year
 ```
 
-SEMO posts each delivery day's day-ahead results file at about 01:00 the *following* day, so yesterday is the newest day the daily run can get. SEMO's aggregated bid and ask curves for tomorrow (`BidAskCurves_SEM-DA`) do appear around 13:40 on the day of the auction; they are not downloaded yet.
+SEMO posts each delivery day's day-ahead results file at about 01:00 the *following* day, so yesterday is the newest day the daily run can get from SEMO. For tomorrow's prices, see ENTSO-E below. SEMO's aggregated bid and ask curves for tomorrow (`BidAskCurves_SEM-DA`) do appear around 13:40 on the day of the auction; they are not downloaded yet.
 
 ### Per-farm wind forecasts, as published
 
@@ -90,6 +91,24 @@ Each version is a ~35 MB file, so versions already saved are never downloaded ag
 
 ```bash
 python -m isem_data --datasets wind_unit_forecasts --start 2026-08-11   # ~360 files, about 20 minutes
+```
+
+### Tomorrow's prices from ENTSO-E
+
+`entsoe_prices` comes from ENTSO-E's [Transparency Platform](https://transparency.entsoe.eu), which has the day-ahead prices from the afternoon of the auction (by 14:00 Irish time), a day and a half before SEMO's file. They are **hourly**: each hour is exactly the average of SEMO's two half-hours, so `prices` stays the half-hourly record and this is for knowing tomorrow early. The daily run asks ENTSO-E for its days plus tomorrow, and `python -m isem_data.checks` checks every hour against SEMO's (`entsoe_matches_semo`).
+
+ENTSO-E needs a free personal access token: register on the Transparency Platform, then email transparency@entsoe.eu asking for "Restful API access", and generate the token in your account settings. The code reads it from the `ENTSOE_TOKEN` environment variable, or else from `~/.config/isem-data/entsoe_token`. To save it there without it showing on screen or going into your shell history:
+
+```bash
+mkdir -p ~/.config/isem-data && read -rs "t?Token: " && print -r -- "$t" > ~/.config/isem-data/entsoe_token && chmod 600 ~/.config/isem-data/entsoe_token; unset t
+```
+
+The token is sent in a request header, never in the web address, and is taken out of every error message, so it can't end up in `status.json` or the logs.
+
+ENTSO-E answers at most a year per request; longer ranges are split up. To back-fill a year:
+
+```bash
+python -m isem_data --datasets entsoe_prices --start 2025-11-07   # a few seconds
 ```
 
 ### Company orders
@@ -313,6 +332,7 @@ isem_data/
 
 - **EirGrid Smart Grid Dashboard** ([smartgriddashboard.com](https://www.smartgriddashboard.com)): the JSON API behind its charts is public but not officially documented, so it may change without notice. Everything that depends on it is in `eirgrid.py`.
 - **SEMO** ([sem-o.com](https://www.sem-o.com)): day-ahead results files, one per delivery day, listed through SEMO's public reports API for about a year before they drop off. A file appears in the list a day or two after its auction. Timestamps are already UTC, and prices use a comma as the decimal point. The per-unit balancing reports come through the same API as XML files, kept for only about 2-3 months; their times are UTC too (the day the clocks go back has 50 half-hours, none repeated). `tests/fixtures/` holds excerpts of real files for testing.
+- **ENTSO-E Transparency Platform** ([transparency.entsoe.eu](https://transparency.entsoe.eu)): the REST API, documented and stable, with a personal token (see above). Answers are XML; a price repeated from the hour before may be left out, and is filled back in. Everything that depends on it is in `entsoe.py`.
 - Check each provider's terms before redistributing the data. This repo stores code, not data.
 
 ## Development
