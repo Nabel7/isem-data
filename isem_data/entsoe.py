@@ -74,7 +74,9 @@ def window(start: date, end: date) -> tuple[pd.Timestamp, pd.Timestamp]:
     """Trading days `start` to `end` in UTC: from 23:00 Irish time the evening before
     `start` to 23:00 Irish time on `end`."""
     first = pd.Timestamp(start).tz_localize(LOCAL_TIME) - pd.Timedelta(hours=1)
-    last = pd.Timestamp(end).tz_localize(LOCAL_TIME) + pd.Timedelta(hours=23)
+    # Midnight after `end` minus an hour, not midnight plus 23 hours: on the day the clocks
+    # go back those differ (the day has 25 hours), and its last hour would be missed.
+    last = pd.Timestamp(end + timedelta(days=1)).tz_localize(LOCAL_TIME) - pd.Timedelta(hours=1)
     return first.tz_convert("UTC"), last.tz_convert("UTC")
 
 
