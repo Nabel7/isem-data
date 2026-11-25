@@ -16,6 +16,14 @@ problem within a day or two, not weeks later.
 - `stuck_switches` fails when most farms count as held down on a day with almost no
   instructions. It would have caught 28 Oct 2026, when 82% of wind units were left
   "curtailed" (PR #16).
+- `partial_days` fails when a day has data for far fewer wind units than usual (a source
+  published only part of it) and isn't in known_gaps.csv. It would have caught 18 Nov
+  2026, when SEMO's metered file had 178 of about 229 wind units. The dispatch down
+  figures leave such days out (tracker.partial_days); this makes sure someone looks.
+- `switches_left_on` warns when a unit's constraint or curtailment switch went more than
+  four days without a new instruction in the last four weeks, so the figures ended it
+  (dispatch_down.SWITCH_LIMIT). It would have caught GU_408180, held down from 17 Oct
+  2026 by one "on" with no "off".
 - `entsoe_matches_semo` fails when ENTSO-E's hourly day-ahead price isn't the average
   of SEMO's two half-hours. The two are independent copies of the same auction result,
   so a mismatch means one of them was misread or later corrected.
@@ -35,7 +43,7 @@ import json
 import os
 import sys
 from dataclasses import asdict, dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -317,6 +325,61 @@ def entsoe_matches_semo(entsoe: pd.DataFrame, prices: pd.DataFrame) -> Result:
     )
 
 
+# --- partial days and switches left on ----------------------------------------------
+
+
+def irish_days_of(times: pd.Series) -> pd.Series:
+    return times.dt.tz_convert(LOCAL_TIME).dt.strftime("%Y-%m-%d")
+
+
+def partial_days(farms: pd.DataFrame, known: pd.DataFrame) -> Result:
+    """`farms` is dispatch_down.farm_half_hours's output with an Irish `day` column;
+    `known` is known_gaps.csv. A partial day listed there for metered or availability
+    is accepted."""
+    from .tracker import partial_days as find
+
+    found = find(farms)
+    accepted = set(known.loc[known["dataset"].isin(["metered", "availability"]), "day"])
+    new = [d for d in found if d not in accepted]
+    details = {"partial_days": found, "known": [d for d in found if d in accepted]}
+    if new:
+        return Result(
+            "partial_days",
+            "fail",
+            f"Days with data for far fewer wind units than usual: {', '.join(new)}. Try "
+            "downloading them again; if the source's file is itself incomplete, add them "
+            "to known_gaps.csv with a note",
+            details,
+        )
+    note = f" ({len(found)} known: {', '.join(found)})" if found else ""
+    return Result("partial_days", "pass", f"No partial days{note}", details)
+
+
+def switches_left_on(instructions: pd.DataFrame, today: date) -> Result:
+    """Switches the figures ended because no new instruction came for four days, in the
+    last four weeks."""
+    since = pd.Timestamp(today - timedelta(days=28), tz="UTC")
+    left = dispatch_down.switches_left_on(instructions)
+    left = left[left["on_utc"] >= since]
+    rows = [
+        {"unit": r.unit, "switch": r.switch, "on_utc": r.on_utc.strftime("%Y-%m-%dT%H:%MZ")}
+        for r in left.itertuples()
+    ]
+    if rows:
+        listed = ", ".join(
+            f"{r['unit']} ({r['switch']} since {r['on_utc'][:10]})" for r in rows[:10]
+        )
+        return Result(
+            "switches_left_on",
+            "warn",
+            f"Switches ended after four days with no new instruction: {listed}",
+            {"left_on": rows},
+        )
+    return Result(
+        "switches_left_on", "pass", "No switch left on without instructions", {"left_on": []}
+    )
+
+
 # --- running them ------------------------------------------------------------------
 
 
@@ -374,6 +437,15 @@ def run(data_dir: Path, today: date) -> list[Result]:
         return stuck_switches(farms, used)
 
     attempt("stuck_switches", check_stuck_switches)
+
+    def farms_by_day():
+        farms = dispatch_down.farm_half_hours(
+            load("availability"), load("metered"), instructions(), load("units")
+        )
+        return farms.assign(day=irish_days_of(farms["timestamp_utc"]))
+
+    attempt("partial_days", lambda: partial_days(farms_by_day(), read_known_gaps()))
+    attempt("switches_left_on", lambda: switches_left_on(instructions(), today))
     attempt(
         "entsoe_matches_semo",
         lambda: entsoe_matches_semo(load("entsoe_prices"), load("prices")),

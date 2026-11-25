@@ -24,7 +24,7 @@ notebooks = ["jupyter>=1.0", "matplotlib>=3.7"]
 include = ["isem_data*"]
 
 [tool.setuptools.package-data]
-isem_data = ["corrections.csv", "known_gaps.csv"]
+isem_data = ["corrections.csv", "known_gaps.csv", "unit_aliases.csv"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

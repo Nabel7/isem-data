@@ -349,6 +349,38 @@ def farm_daily(farms: pd.DataFrame) -> pd.DataFrame:
     return sums(farms, ["unit", "day"])
 
 
+UNIT_ALIASES = Path(__file__).with_name("unit_aliases.csv")
+# A day counts as partial when it has data for fewer than this share of the wind units
+# seen on a typical recent day (the median over the PARTIAL_WINDOW days before it).
+PARTIAL_SHARE = 0.9
+PARTIAL_WINDOW = 28
+
+
+def read_aliases(path: Path = UNIT_ALIASES) -> dict[str, str]:
+    """{new unit: old unit} from unit_aliases.csv."""
+    if not path.exists():
+        return {}
+    table = pd.read_csv(path, comment="#")
+    return dict(zip(table["unit"], table["same_as"], strict=True))
+
+
+def merge_aliases(farms: pd.DataFrame, aliases: dict[str, str]) -> pd.DataFrame:
+    """Count each re-registered unit's half-hours under its old code (unit_aliases.csv)."""
+    return farms.assign(unit=farms["unit"].replace(aliases)) if aliases else farms
+
+
+def partial_days(farms: pd.DataFrame) -> list[str]:
+    """Days with data for far fewer wind units than usual: a source published only part
+    of the day (on 18 Nov 2026 SEMO's metered file had 178 of about 229 wind units).
+    Such a day's totals would be too low, so build() leaves it out like a missing day."""
+    if farms.empty:
+        return []
+    per_day = farms.groupby("day")["unit"].nunique().sort_index()
+    usual = per_day.shift(1).rolling(PARTIAL_WINDOW, min_periods=7).median()
+    short = per_day[per_day < PARTIAL_SHARE * usual]
+    return list(short.index)
+
+
 def missing_days(farms: pd.DataFrame) -> list[str]:
     """Days between the first and last with no data at all (e.g. no SEMO files)."""
     if farms.empty:
@@ -358,12 +390,17 @@ def missing_days(farms: pd.DataFrame) -> list[str]:
     return [day.strftime("%Y-%m-%d") for day in expected.difference(days)]
 
 
-def meta(farms: pd.DataFrame, solar: set[str] | None = None) -> dict:
+def meta(
+    farms: pd.DataFrame, solar: set[str] | None = None, partial: list[str] | None = None
+) -> dict:
+    """The data's span and caveats. `partial` days (see partial_days) are left out of
+    `farms` and listed both on their own and with the missing days."""
     return {
         "built_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "first_day": farms["day"].min(),
         "last_day": farms["day"].max(),
-        "missing_days": missing_days(farms),
+        "missing_days": sorted(set(missing_days(farms)) | set(partial or [])),
+        "partial_days": list(partial or []),
         "farms": int(farms["unit"].nunique()),
         "solar_units": len(solar or ()),
         "credit": CREDIT,
@@ -391,8 +428,12 @@ def build(
     for ALL, ROI and NI (the wind and wind_regions datasets); without it, percentages
     use only the output of the units in SEMO's reports."""
     farms = dispatch_down.farm_half_hours(availability, metered, instructions, units)
+    farms = merge_aliases(farms, read_aliases())
     farms = dispatch_down.add_market_value(farms, prices)
     farms = with_local_dates(farms)
+    # Days a source published only in part would be undercounted: leave them out.
+    partial = partial_days(farms)
+    farms = farms[~farms["day"].isin(partial)]
     table = farm_list(farms, units, names)
     places = None
     if names is not None and osm is not None:
@@ -412,7 +453,7 @@ def build(
     }
     if places is not None:
         files["farm_locations.csv"] = places
-    files["meta.json"] = meta(farms, solar)
+    files["meta.json"] = meta(farms, solar, partial)
     files.update(farm_pages(farms, table, places))
     return files
 
