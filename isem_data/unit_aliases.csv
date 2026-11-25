@@ -1,0 +1,6 @@
+# Units SEMO re-registered under a new code. The new code's data is counted under the old
+# one, so the farm keeps one name, one page and one history. Add a row only when the old
+# unit stops and the new one starts at the same moment, with the same company and the
+# same capacity; say what you checked in the note.
+unit,same_as,from_day,note
+GU_408230,GU_405210,2026-11-18,"Ardderroo (Rockgrid) Windfarm, Lettermuckoo Energy Supply Ltd: GU_405210's data ends 17 Nov 22:30 UTC and GU_408230's starts 23:00, both declaring 91.4 MW (checked 25 Nov 2026)"

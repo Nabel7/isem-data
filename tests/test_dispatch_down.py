@@ -327,3 +327,62 @@ def test_the_check_looks_back_only():
     assert factor.iloc[95] == pytest.approx(0.3)
     # Early on there's too little to judge.
     assert factor.iloc[10] == 1.0
+
+
+# --- a switch with no "off" ---
+
+
+def test_a_switch_with_no_new_instruction_for_four_days_ends():
+    """One "constraint on" and nothing after it (GU_408180, 17 Oct 2026): held down for
+    four days, then free."""
+    times = pd.date_range(at("00:00"), periods=6 * 48, freq="30min")
+    availability = pd.DataFrame({"timestamp_utc": times, "unit": "GU_1", "availability_mw": 20.0})
+    metered = pd.DataFrame(
+        {"timestamp_utc": times, "unit": "GU_1", "metered_mwh": 5.0, "region": "ROI"}
+    )
+    instructions = pd.DataFrame(
+        [
+            {
+                "timestamp_utc": at("00:10"),
+                "unit": "GU_1",
+                "instruction_code": "WIND",
+                "combination_code": "LOCL",
+            }
+        ]
+    )
+    farms = dispatch_down.farm_half_hours(
+        availability, metered, instructions, make_units(), start=times[0]
+    )
+    held = farms.set_index("timestamp_utc")["constrained"]
+    limit = at("00:10") + dispatch_down.SWITCH_LIMIT
+    assert held[held.index + pd.Timedelta(minutes=15) <= limit].iloc[1:].all()
+    assert not held[held.index + pd.Timedelta(minutes=15) > limit].any()
+
+
+def test_switches_left_on_lists_an_on_with_nothing_after_it_for_four_days():
+    on = pd.DataFrame(
+        [
+            {
+                "timestamp_utc": at("00:10"),
+                "unit": "GU_1",
+                "instruction_code": "WIND",
+                "combination_code": "LOCL",
+            },
+            {
+                "timestamp_utc": at("00:10"),
+                "unit": "GU_2",
+                "instruction_code": "WIND",
+                "combination_code": "CURL",
+            },
+            {
+                "timestamp_utc": at("05:00"),
+                "unit": "GU_2",
+                "instruction_code": "WIND",
+                "combination_code": "CRLO",
+            },
+        ]
+    )
+    left = dispatch_down.switches_left_on(on, until=at("00:00") + pd.Timedelta(days=6))
+    assert list(left["unit"]) == ["GU_1"] and list(left["switch"]) == ["constrained"]
+    # Too recent to judge: under four days before `until`.
+    assert dispatch_down.switches_left_on(on, until=at("00:00") + pd.Timedelta(days=2)).empty

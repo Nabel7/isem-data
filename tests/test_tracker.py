@@ -418,3 +418,41 @@ def test_solar_farms_stay_out_of_the_island_figures_but_keep_a_farm_page(tmp_pat
     farms = files["farms.csv"].set_index("unit")
     assert farms.loc["GU_S", "technology"] == "solar"
     assert "farms/gu-s.json" in files
+
+
+# --- re-registered units and partial days ---
+
+
+def test_a_re_registered_unit_is_counted_under_its_old_code():
+    farms = make_farms(
+        [
+            {"timestamp_utc": "2026-11-17 22:30", "unit": "GU_OLD", "region": "ROI",
+             "reason": "none", "produced_mwh": 5.0, "lost_mwh": 0.0},
+            {"timestamp_utc": "2026-11-17 23:00", "unit": "GU_NEW", "region": "ROI",
+             "reason": "none", "produced_mwh": 6.0, "lost_mwh": 0.0},
+        ]
+    )  # fmt: skip
+    merged = tracker.merge_aliases(farms, {"GU_NEW": "GU_OLD"})
+    assert set(merged["unit"]) == {"GU_OLD"} and merged["produced_mwh"].sum() == 11.0
+
+
+def test_the_aliases_file_has_ardderroo():
+    assert tracker.read_aliases()["GU_408230"] == "GU_405210"
+
+
+def test_a_day_with_far_fewer_units_than_usual_is_partial():
+    """Ten units a day for ten days, then a day with seven: partial. A day with nine (90%)
+    is not."""
+    rows = []
+    for d in range(12):
+        day = pd.Timestamp("2026-11-01") + pd.Timedelta(days=d)
+        n = {10: 7, 11: 9}.get(d, 10)
+        rows += [{"day": day.strftime("%Y-%m-%d"), "unit": f"GU_{u}"} for u in range(n)]
+    assert tracker.partial_days(pd.DataFrame(rows)) == ["2026-11-11"]
+
+
+def test_meta_lists_partial_days_with_the_missing_ones_once():
+    farms = local(FARMS)
+    info = tracker.meta(farms, partial=["2026-11-11"])
+    assert info["partial_days"] == ["2026-11-11"]
+    assert info["missing_days"].count("2026-11-11") == 1

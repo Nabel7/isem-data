@@ -171,6 +171,8 @@ def test_a_check_that_cannot_run_fails_and_the_others_still_run(tmp_path):
         "freshness",
         "missing_days",
         "stuck_switches",
+        "partial_days",
+        "switches_left_on",
         "entsoe_matches_semo",
     ]
     assert all(r.status == "fail" for r in results)
@@ -252,3 +254,42 @@ def test_a_missing_trading_day_is_found_though_every_clock_day_has_some_hours():
     times = pd.Series(hours[(hours < "2026-11-18 23:00") | (hours >= "2026-11-19 23:00")])
     assert checks.days_without_data(checks.irish_days(times)) == []
     assert checks.days_without_data(checks.trading_days(times)) == ["2026-11-19"]
+
+
+# --- partial days and switches left on ---
+
+
+def farms_per_day(counts):
+    rows = []
+    for d, n in enumerate(counts):
+        day = (pd.Timestamp("2026-11-01") + pd.Timedelta(days=d)).strftime("%Y-%m-%d")
+        rows += [{"day": day, "unit": f"GU_{u}"} for u in range(n)]
+    return pd.DataFrame(rows)
+
+
+def test_a_new_partial_day_fails_until_it_is_a_known_gap():
+    farms = farms_per_day([10] * 10 + [7])
+    none = pd.DataFrame(columns=["dataset", "day", "note"])
+    assert checks.partial_days(farms, none).status == "fail"
+    known = pd.DataFrame(
+        [{"dataset": "metered", "day": "2026-11-11", "note": "SEMO's file was short"}]
+    )
+    result = checks.partial_days(farms, known)
+    assert result.status == "pass" and "2026-11-11" in result.summary
+
+
+def test_a_switch_left_on_for_four_days_warns():
+    on = pd.DataFrame(
+        [{"timestamp_utc": pd.Timestamp("2026-11-10 00:10", tz="UTC"), "unit": "GU_408180",
+          "instruction_code": "WIND", "combination_code": "LOCL"},
+         {"timestamp_utc": pd.Timestamp("2026-11-20 00:10", tz="UTC"), "unit": "GU_9",
+          "instruction_code": "WIND", "combination_code": "LOCL"}]
+    )  # fmt: skip
+    result = checks.switches_left_on(on, date(2026, 11, 25))
+    assert result.status == "warn" and "GU_408180" in result.summary
+    assert checks.switches_left_on(on.iloc[1:], date(2026, 11, 25)).status == "pass"
+
+
+def test_the_known_gaps_file_has_the_partial_18_november():
+    known = checks.read_known_gaps()
+    assert ((known["dataset"] == "metered") & (known["day"] == "2026-11-18")).any()

@@ -44,6 +44,12 @@ instructions at all (SEMO published nothing for it) would leave switches stuck o
 Every switch is therefore turned off at the start of such a day: after it, a farm
 counts as held down only once a new instruction says so. See missing_days.
 
+For the same reason a switch also ends SWITCH_LIMIT (4 days) after its unit's last
+instruction for it. From Sep to Nov 2026 a constraint never went more than 79 hours
+without a fresh instruction, so 4 days only catches an "off" that never came: one
+"constraint on" for GU_408180 on 17 Oct 2026 with nothing after it had kept that unit
+held down for five weeks. switches_left_on() lists the cases, for the daily checks.
+
 For the whole island, with all wind generation as the base (see tracker.py), this is
 within about half a percentage point of EirGrid's official figures for the same days
 in September and October 2026. The split between constraint and curtailment is less
@@ -84,6 +90,8 @@ COLUMNS = [
 ]
 
 HALF_HOUR = pd.Timedelta(minutes=30)
+# A switch with no new instruction for this long is taken to be off (see the top).
+SWITCH_LIMIT = pd.Timedelta(days=4)
 LOCAL_TIME = "Europe/Dublin"
 
 # Checking declared availability against output (see the top).
@@ -193,9 +201,12 @@ def farm_half_hours(
             left_on="middle",
             right_on="changed_utc",
             by="unit",
-        ).drop(columns="changed_utc")
-        # No change yet for this farm means the switch is off.
-        farms[switch] = farms[switch].astype("boolean").fillna(False).astype(bool)
+        )
+        # No change yet for this farm means the switch is off, and so does no fresh
+        # instruction for SWITCH_LIMIT (an "off" that never came).
+        fresh = (farms["middle"] - farms["changed_utc"]) <= SWITCH_LIMIT
+        farms[switch] = farms[switch].astype("boolean").fillna(False).astype(bool) & fresh
+        farms = farms.drop(columns="changed_utc")
 
     farms["reason"] = np.select(
         [farms["constrained"], farms["curtailed"]], ["constraint", "curtailment"], "none"
@@ -207,6 +218,28 @@ def farm_half_hours(
 
     farms = farms.sort_values(["timestamp_utc", "unit"]).reset_index(drop=True)
     return farms[COLUMNS]
+
+
+def switches_left_on(instructions: pd.DataFrame, until: pd.Timestamp | None = None) -> pd.DataFrame:
+    """Each "on" instruction with no further instruction for its unit and switch within
+    SWITCH_LIMIT, ended by the limit in farm_half_hours: unit, switch, on_utc, and the
+    next instruction (NaT if none yet). An "on" less than SWITCH_LIMIT before `until`
+    (default: the newest instruction) can't be judged yet and is left out."""
+    wind = instructions[instructions["instruction_code"] == "WIND"]
+    until = until if until is not None else wind["timestamp_utc"].max()
+    found = []
+    for switch, (on, off) in SWITCHES.items():
+        changes = wind[wind["combination_code"].isin([on, off])].sort_values("timestamp_utc")
+        changes = changes.assign(next_utc=changes.groupby("unit")["timestamp_utc"].shift(-1))
+        ons = changes[changes["combination_code"] == on]
+        gap = ons["next_utc"].fillna(until) - ons["timestamp_utc"]
+        left = ons[(gap > SWITCH_LIMIT)]
+        found.append(
+            left.assign(switch=switch, on_utc=left["timestamp_utc"])[
+                ["unit", "switch", "on_utc", "next_utc"]
+            ]
+        )
+    return pd.concat(found, ignore_index=True).sort_values("on_utc").reset_index(drop=True)
 
 
 def add_market_value(farms: pd.DataFrame, prices: pd.DataFrame) -> pd.DataFrame:
