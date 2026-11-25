@@ -15,6 +15,8 @@ python -m isem_data --datasets wind_unit_forecasts --start 2026-08-11
 python -m isem_data --datasets entsoe_prices --start 2025-11-07
                                                       # ENTSO-E's hourly day-ahead prices,
                                                       # up to tomorrow (needs a token)
+python -m isem_data --datasets entsoe_wind_forecasts   # ENTSO-E's wind forecast, a few days
+                                                      # ahead; each run keeps what changed
 python -m isem_data --data-dir ~/grid-data            # save somewhere else
 """
 
@@ -24,7 +26,7 @@ import traceback
 from datetime import date, timedelta
 from pathlib import Path
 
-from . import balancing, eirgrid, entsoe, forecasts, locations, semo, storage
+from . import balancing, eirgrid, entsoe, entsoe_wind, forecasts, locations, semo, storage
 
 # Every dataset the command can download: EirGrid's, SEMO's day-ahead prices and
 # company orders (both read from the same SEMO files), and SEMO's per-unit
@@ -38,6 +40,7 @@ DATASETS = [
     *balancing.DATASETS,
     forecasts.DATASET,
     entsoe.DATASET,
+    entsoe_wind.DATASET,
 ]
 
 # Reference data that barely changes, so it's left out of the default (daily) run:
@@ -117,6 +120,12 @@ def download(dataset: str, start: date, end: date, data_dir: Path) -> str:
     if dataset == forecasts.DATASET:
         added = forecasts.fetch_and_save(start, end, data_dir=data_dir)
         return f"{added} new version(s) for {start} to {end}"
+    if dataset == entsoe_wind.DATASET:
+        # Forecasts run days ahead, and only what changed since the last run is kept, so
+        # the record says when each value was first seen (see entsoe_wind.py).
+        end = entsoe_wind.default_end(end)
+        added = entsoe_wind.fetch_and_save(start, end, data_dir=data_dir)
+        return f"{added} new or changed hourly value(s) for {start} to {end}"
     if dataset in REFERENCE:
         fetch, key = REFERENCE[dataset]
         df = fetch()
